@@ -1,0 +1,215 @@
+[release]
+version = "0.2.1"
+bundle_name = "Moltage-0.2.1-third-party-source.zip"
+
+# These archives are the corresponding and rebuild sources for the exact
+# components used by the Windows v0.2.1 build. Release automation verifies every
+# SHA-256 value before an asset can enter the bundle.
+
+[[source]]
+name = "CPython"
+version = "3.13.2"
+filename = "Python-3.13.2.tar.xz"
+url = "https://www.python.org/ftp/python/3.13.2/Python-3.13.2.tar.xz"
+sha256 = "d984bcc57cd67caab26f7def42e523b1c015bbc5dc07836cf4f0b63fa159eb56"
+license = "Python-2.0"
+
+[[source]]
+name = "Qt"
+version = "6.11.2"
+filename = "qt-everywhere-src-6.11.2.tar.xz"
+url = "https://download.qt.io/official_releases/qt/6.11/6.11.2/single/qt-everywhere-src-6.11.2.tar.xz"
+sha256 = "6dcfbca271d76a6502741a2c0dc6fc98ef7dd0b7b4cfd0abcebb285a86a26f33"
+license = "GPL-3.0-only (selected for the Moltage distribution)"
+
+[[source]]
+name = "Qt for Python (PySide6 and Shiboken6)"
+version = "6.11.2"
+filename = "pyside-setup-everywhere-src-6.11.2.zip"
+url = "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.2-src/pyside-setup-everywhere-src-6.11.2.zip"
+sha256 = "c0fdd62b91a1d36d5ee2e1fb71050a32fbc93fcdeef0fdcb41d29afaaf00d9b5"
+license = "GPL-3.0-only (selected for the Moltage distribution)"
+
+[[source]]
+name = "VTK"
+version = "9.7.0"
+filename = "VTK-9.7.0.tar.gz"
+url = "https://www.vtk.org/files/release/9.7/VTK-9.7.0.tar.gz"
+sha256 = "affdb7a15ec34ee0174407f911ab70b646c7af01161818bbab4e1160b7eff720"
+license = "BSD-3-Clause"
+
+[[source]]
+name = "NumPy"
+version = "2.5.3"
+filename = "numpy-2.5.3.tar.gz"
+url = "https://files.pythonhosted.org/packages/13/01/11703282db468b85f6f7b8c7f22d058de5970d5c7e60a3a8aaa313c3de36/numpy-2.5.3.tar.gz"
+sha256 = "df2d5874ff183595a4ba404edd04f6bd9b5505c1d7708573f6a6c17489a67563"
+license = "BSD-3-Clause and bundled-component licenses"
+
+[[source]]
+name = "OpenBLAS"
+version = "0.3.34"
+filename = "OpenBLAS-0.3.34.tar.gz"
+url = "https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.34/OpenBLAS-0.3.34.tar.gz"
+sha256 = "cd7e129868320cc2d033afa920e31202dfe0b8066a5b66661900ccc0f197dfed"
+license = "BSD-3-Clause and bundled LAPACK/GCC runtime terms"
+
+[[source]]
+name = "Paramiko"
+version = "5.0.0"
+filename = "paramiko-5.0.0.tar.gz"
+url = "https://files.pythonhosted.org/packages/62/93/dcc25d52f49022ae6175d15e6bd751f1acc99b98bc61fc55e5155a7be2e7/paramiko-5.0.0.tar.gz"
+sha256 = "36763b5b95c2a0dcfdf1abc48e48156ee425b21efe2f0e787c2dd5a95c0e5e79"
+license = "LGPL-2.1-only"
+
+[[source]]
+name = "cryptography"
+version = "50.0.1"
+filename = "cryptography-50.0.1.tar.gz"
+url = "https://files.pythonhosted.org/packages/bb/ad/5d6702db60b1e40b41ef513b6967ff5848f307d50f8449baf1634f5908f1/cryptography-50.0.1.tar.gz"
+sha256 = "5dd9bda1c12b4162f6ff568eeb5e0ff956c28d14406e875cfe8a63a2d414ff20"
+license = "Apache-2.0 OR BSD-3-Clause"
+
+[[source]]
+name = "OpenSSL"
+version = "4.0.2"
+filename = "openssl-4.0.2.tar.gz"
+url = "https://github.com/openssl/openssl/releases/download/openssl-4.0.2/openssl-4.0.2.tar.gz"
+sha256 = "736b467530f916737b7031310ccb21d8218c6229e61e8e160cd1d3458cd543a8"
+license = "Apache-2.0"
+
+[[source]]
+name = "bcrypt"
+version = "5.0.0"
+filename = "bcrypt-5.0.0.tar.gz"
+url = "https://files.pythonhosted.org/packages/d4/36/3329e2518d70ad8e2e5817d5a4cac6bba05a47767ec416c7d020a965f408/bcrypt-5.0.0.tar.gz"
+sha256 = "f748f7c2d6fd375cc93d3fba7ef4a9e3a092421b8dbf34d8d4dc06be9492dfdd"
+license = "Apache-2.0"
+
+[[source]]
+name = "PyNaCl"
+version = "1.6.2"
+filename = "pynacl-1.6.2.tar.gz"
+url = "https://files.pythonhosted.org/packages/d9/9a/4019b524b03a13438637b11538c82781a5eda427394380381af8f04f467a/pynacl-1.6.2.tar.gz"
+sha256 = "018494d6d696ae03c7e656e5e74cdfd8ea1326962cc401bcf018f1ed8436811c"
+license = "Apache-2.0 and bundled libsodium ISC"
+
+[[source]]
+name = "cffi"
+version = "2.1.1"
+filename = "cffi-2.1.1.tar.gz"
+url = "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz"
+sha256 = "dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be"
+license = "MIT-0"
+
+[[source]]
+name = "keyring"
+version = "25.7.0"
+filename = "keyring-25.7.0.tar.gz"
+url = "https://files.pythonhosted.org/packages/43/4b/674af6ef2f97d56f0ab5153bf0bfa28ccb6c3ed4d1babf4305449668807b/keyring-25.7.0.tar.gz"
+sha256 = "fe01bd85eb3f8fb3dd0405defdeac9a5b4f6f0439edbb3149577f244a2e8245b"
+license = "MIT"
+
+[[source]]
+name = "Invoke"
+version = "3.0.3"
+filename = "invoke-3.0.3.tar.gz"
+url = "https://files.pythonhosted.org/packages/33/f6/227c48c5fe47fa178ccf1fda8f047d16c97ba926567b661e9ce2045c600c/invoke-3.0.3.tar.gz"
+sha256 = "437b6a622223824380bfb4e64f612711a6b648c795f565efc8625af66fb57f0c"
+license = "BSD-2-Clause"
+
+[[source]]
+name = "jaraco.classes"
+version = "3.4.0"
+filename = "jaraco.classes-3.4.0.tar.gz"
+url = "https://files.pythonhosted.org/packages/06/c0/ed4a27bc5571b99e3cff68f8a9fa5b56ff7df1c2251cc715a652ddd26402/jaraco.classes-3.4.0.tar.gz"
+sha256 = "47a024b51d0239c0dd8c8540c6c7f484be3b8fcf0b2d85c13825780d3b3f3acd"
+license = "MIT"
+
+[[source]]
+name = "jaraco.context"
+version = "6.1.2"
+filename = "jaraco_context-6.1.2.tar.gz"
+url = "https://files.pythonhosted.org/packages/af/50/4763cd07e722bb6285316d390a164bc7e479db9d90daa769f22578f698b4/jaraco_context-6.1.2.tar.gz"
+sha256 = "f1a6c9d391e661cc5b8d39861ff077a7dc24dc23833ccee564b234b81c82dfe3"
+license = "MIT"
+
+[[source]]
+name = "jaraco.functools"
+version = "4.6.0"
+filename = "jaraco_functools-4.6.0.tar.gz"
+url = "https://files.pythonhosted.org/packages/6c/1f/c23395957d41ccf27c4e535c3d334c4051e5395b3752057ba4cbaec35c56/jaraco_functools-4.6.0.tar.gz"
+sha256 = "880c577ec9720b3a052d5bc611fb9f2269b3d87902ef42440df443b88e443280"
+license = "MIT"
+
+[[source]]
+name = "more-itertools"
+version = "11.1.0"
+filename = "more_itertools-11.1.0.tar.gz"
+url = "https://files.pythonhosted.org/packages/de/1d/f4da6f02cdffe04d6362210b807146a26044c88d839208aec273bb0d9184/more_itertools-11.1.0.tar.gz"
+sha256 = "48e8f4d9e7e5878571ecf6f2b4e57634f93cd474cc8cfbd2376f2d11b396e30d"
+license = "MIT"
+
+[[source]]
+name = "packaging"
+version = "26.3"
+filename = "packaging-26.3.tar.gz"
+url = "https://files.pythonhosted.org/packages/7d/fa/3944b40b07da9ce895c0e6303a5ab7d53da063554f534556b134a54d6093/packaging-26.3.tar.gz"
+sha256 = "94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79"
+license = "Apache-2.0 OR BSD-2-Clause"
+
+[[source]]
+name = "pycparser"
+version = "3.0"
+filename = "pycparser-3.0.tar.gz"
+url = "https://files.pythonhosted.org/packages/1b/7d/92392ff7815c21062bea51aa7b87d45576f649f16458d78b7cf94b9ab2e6/pycparser-3.0.tar.gz"
+sha256 = "600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29"
+license = "BSD-3-Clause"
+
+[[source]]
+name = "pywin32-ctypes"
+version = "0.2.3"
+filename = "pywin32-ctypes-0.2.3.tar.gz"
+url = "https://files.pythonhosted.org/packages/85/9f/01a1a99704853cb63f253eea009390c88e7131c67e66a0a02099a8c917cb/pywin32-ctypes-0.2.3.tar.gz"
+sha256 = "d162dc04946d704503b2edc4d55f3dba5c1d539ead017afa00142c38b9885755"
+license = "BSD-3-Clause"
+
+[[source]]
+name = "setuptools"
+version = "84.0.0"
+filename = "setuptools-84.0.0.tar.gz"
+url = "https://files.pythonhosted.org/packages/6d/44/f5da03a8ef95d369145c5bb53050e7877c9f3d312e128605fd9504829143/setuptools-84.0.0.tar.gz"
+sha256 = "f4695c21257f0d9b537ec2692c941d02ee143b7cc1276941349a546573b2ef73"
+license = "MIT"
+
+[[source]]
+name = "PyInstaller"
+version = "6.22.2"
+filename = "pyinstaller-6.22.2.tar.gz"
+url = "https://files.pythonhosted.org/packages/cc/2b/836d9def811c02522e0921d8b8cdf0c16b0545a216e97e71041758057859/pyinstaller-6.22.2.tar.gz"
+sha256 = "89b65a3ad07d9dd5832253e37bc45f31872d10d7f9d5c9fd0fdd6088a83829dd"
+license = "GPL-2.0-or-later WITH Bootloader-exception"
+
+[[source]]
+name = "altgraph"
+version = "0.17.5"
+filename = "altgraph-0.17.5.tar.gz"
+url = "https://files.pythonhosted.org/packages/7e/f8/97fdf103f38fed6792a1601dbc16cc8aac56e7459a9fff08c812d8ae177a/altgraph-0.17.5.tar.gz"
+sha256 = "c87b395dd12fabde9c99573a9749d67da8d29ef9de0125c7f536699b4a9bc9e7"
+license = "MIT"
+
+[[source]]
+name = "pefile"
+version = "2024.8.26"
+filename = "pefile-2024.8.26.tar.gz"
+url = "https://files.pythonhosted.org/packages/03/4f/2750f7f6f025a1507cd3b7218691671eecfd0bbebebe8b39aa0fe1d360b8/pefile-2024.8.26.tar.gz"
+sha256 = "3ff6c5d8b43e8c37bb6e6dd5085658d658a7a0bdcd20b6a07b1fcfc1c4e9d632"
+license = "MIT"
+
+[[source]]
+name = "pyinstaller-hooks-contrib"
+version = "2026.7"
+filename = "pyinstaller_hooks_contrib-2026.7.tar.gz"
+url = "https://files.pythonhosted.org/packages/26/60/d881fa1ba8c160c18d8e6f782bb16ec4640c08bc08fc50f704c368ad4f9e/pyinstaller_hooks_contrib-2026.7.tar.gz"
+sha256 = "5fbcaacb22c4f4aac869a127dce283f67a4b4cfcc37d496f2446603e6d68aefa"
+license = "Apache-2.0 OR GPL-2.0-or-later"

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <radialGradient id="sourceAtomGradient" cx="35%" cy="30%" r="72%">
+      <stop offset="0" stop-color="#9dccff"/>
+      <stop offset="0.48" stop-color="#4e86c9"/>
+      <stop offset="1" stop-color="#21466f"/>
+    </radialGradient>
+    <radialGradient id="targetAtomGradient" cx="35%" cy="30%" r="72%">
+      <stop offset="0" stop-color="#fff4b8"/>
+      <stop offset="0.52" stop-color="#e7ad3d"/>
+      <stop offset="1" stop-color="#9c600d"/>
+    </radialGradient>
+  </defs>
+  <circle id="sourceAtom" cx="5" cy="12" r="3.2" fill="url(#sourceAtomGradient)" stroke="#21466f" stroke-width="0.75"/>
+  <path d="M9.2 12h6.3" fill="none" stroke="#456982" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="m13.9 9.45 3 2.55-3 2.55" fill="none" stroke="#456982" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle id="targetAtom" cx="18.6" cy="12" r="3.8" fill="url(#targetAtomGradient)" stroke="#8c560b" stroke-width="0.8"/>
+</svg>

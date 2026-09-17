@@ -1,0 +1,7 @@
+Synthetic AITRANSS parser fixture
+build up a self-energy >>>
+left electrode, surface atoms: Au
+right electrode, surface atoms: Au
+your left and right electrodes share the same atoms:
+please, check your <tcontrol> file ...
+STOP : transport module will terminate now!

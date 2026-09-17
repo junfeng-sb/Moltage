@@ -1,0 +1,40 @@
+[metadata]
+units_distance = "angstrom"
+units_angle = "degree"
+scope = "Moltage project starting parameters"
+
+[NCS]
+distance_angstrom = 2.34
+angle_degrees = 170.0
+
+[SMe]
+distance_angstrom = 2.40
+angle_degrees = 100.0
+
+[PYRIDINE_N]
+distance_angstrom = 2.15
+equal_angle_degrees = 119.0
+
+[NH2]
+distance_angstrom = 2.42
+angle_degrees = 120.0
+
+[SH]
+distance_angstrom = 2.35
+angle_degrees = 105.0
+
+[ALKYNYL_C]
+distance_angstrom = 2.05
+angle_degrees = 179.0
+
+[CYANO_N]
+distance_angstrom = 2.20
+angle_degrees = 179.0
+
+[DICYANO_C]
+distance_angstrom = 2.10
+angle_degrees = 111.0
+
+[DICYANO_CYANO_N]
+distance_angstrom = 2.00
+angle_degrees = 121.0

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <radialGradient id="ballGradient" cx="35%" cy="30%" r="72%">
+      <stop offset="0" stop-color="#e1bdff"/>
+      <stop offset="0.42" stop-color="#a94df0"/>
+      <stop offset="1" stop-color="#54209a"/>
+    </radialGradient>
+    <linearGradient id="arrowGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dda1ff"/>
+      <stop offset="0.38" stop-color="#a94df0"/>
+      <stop offset="1" stop-color="#6823ad"/>
+    </linearGradient>
+  </defs>
+  <path id="rotationBack" d="M12.4 3.75C9.8 3.75 8.05 7.4 8.05 12s1.75 8.25 4.35 8.25" fill="none" stroke="#edf4f8" stroke-width="0.82" stroke-linecap="round" stroke-dasharray="1.35 1.18" opacity="0.86"/>
+  <path d="M7.3 10.15h7.15V7.7c0-.68.78-1.06 1.31-.64l5.72 4.45a.62.62 0 0 1 0 .98l-5.72 4.45c-.53.42-1.31.04-1.31-.64v-2.45H7.3z" fill="url(#arrowGradient)" stroke="#e1bdff" stroke-width="0.55" stroke-linejoin="round"/>
+  <path d="M7.8 10.72h7.3V8.3" fill="none" stroke="#f0d8ff" stroke-width="0.45" stroke-linecap="round" opacity="0.82"/>
+  <circle cx="5.1" cy="12" r="3.2" fill="url(#ballGradient)" stroke="#d4a6ff" stroke-width="0.55"/>
+  <ellipse cx="4.15" cy="10.9" rx="0.85" ry="0.5" fill="#f4e6ff" opacity="0.8"/>
+  <path id="rotationFront" d="M12.4 3.75c1.72 0 3.08 1.5 3.72 3.65M16.02 9.15c.25.9.38 1.85.38 2.85 0 4.6-1.52 8.25-4 8.25" fill="none" stroke="#edf4f8" stroke-width="0.9" stroke-linecap="round"/>
+  <path id="rotationArrowhead" d="M14.25 6.35 17.35 5.9 15.75 9.65z" fill="#edf4f8"/>
+</svg>

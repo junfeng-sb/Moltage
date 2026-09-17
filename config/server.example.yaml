@@ -1,0 +1,32 @@
+# Phase 0 illustration only. This is not a finalized configuration schema.
+# Replace placeholders in an untracked local configuration; never commit credentials.
+server:
+  hostname: "<SERVER_HOSTNAME>"
+  ssh_port: "<SSH_PORT>"
+  username: "<SSH_USERNAME>"
+  authentication_method: "password"
+  credential_source: "<EXTERNAL_SECRET_SOURCE>"
+  remote_root: "<REMOTE_PROJECT_ROOT>"
+
+fhi_aims:
+  executable_or_module: "<FHI_AIMS_EXECUTABLE_OR_MODULE>"
+  version: "<FHI_AIMS_VERSION>"
+  species_definitions_root: "<REMOTE_ROOT_WITH_LIGHT_TIGHT_REALLY_TIGHT>"
+
+slurm:
+  account: "<SLURM_ACCOUNT_OR_BLANK>"
+  partition: "<SLURM_PARTITION_OR_BLANK>"
+  qos: "<SLURM_QOS_OR_BLANK>"
+  aitranss_launch_mode: "<DIRECT_OR_SRUN>"
+  aitranss_srun_path: "<ABSOLUTE_VERIFIED_SRUN_PATH_IF_SRUN>"
+  email_notification_enabled: false
+  email_notification_recipient: "<ONE_EMAIL_ADDRESS>"
+
+lsf:
+  queue: "<LSF_QUEUE_OR_BLANK>"
+  project: "<LSF_PROJECT_OR_BLANK>"
+  resource_requirement_mode: "<SITE_DEFAULT_OR_SPAN_RUSAGE>"
+
+resources:
+  anchor_definitions: "<APPROVED_ANCHOR_RESOURCE_LOCATION>"
+  electrode_templates: "<APPROVED_ELECTRODE_RESOURCE_LOCATION>"

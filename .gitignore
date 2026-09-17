@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+
+.venv/
+.venv-packaging/
+venv/
+
+build/
+dist/
+*.egg-info/
+
+.env
+.env.*
+config/server.yaml
+config/*.local.yaml
+config/*secret*.yaml
+
+# Test and local validation caches
+/.pytest_cache/
+/tmp/
+
+# Local Moltage application state if copied into the repository
+/server_profiles.json
+/known_projects.json
+/known_hosts
+/view_preferences.json
+/submission_lifecycle.log
+/density_results/

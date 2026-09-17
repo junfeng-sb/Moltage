@@ -1,0 +1,16 @@
+schema_version = 1
+model_id = "MoltageOrcaWblUiDefaultsV1"
+
+# Editable model inputs shown when a new ORCA WBL analysis is configured.
+au_fermi_energy_ev = -5.1
+energy_min_relative_ev = -5.0
+energy_max_relative_ev = 5.0
+energy_step_ev = 0.01
+
+[provenance]
+classification = "HYPOTHESIS"
+energy_reference = "Vacuum level = 0 eV"
+au_fermi_basis = "Rounded generic elemental/polycrystalline Au work-function starting value"
+background_source = "H. B. Michaelson, J. Appl. Phys. 48, 4729-4733 (1977)"
+background_doi = "10.1063/1.323539"
+limitations = "Editable model default; not a universal Au surface, facet, electrode, or junction Fermi level. The relative window and sampling interval are Moltage UI defaults, not literature constants."

@@ -1,0 +1,34 @@
+schema: spec-driven
+
+context: |
+  Moltage 是已有的 single-molecule quantum transport scientific desktop application，主要技术环境为 Python、PySide6、VTK、NumPy 和 Paramiko。
+  这是 brownfield project。对于尚未被 main OpenSpec spec 覆盖的 historical capability，current code、tests，以及与当前实现一致且描述 observable behavior 的 maintained documentation 共同构成 current-state evidence。对于已有 main spec 的 capability，main spec 表达 intended behavior；对于 active change，只有经用户明确确认的 OpenSpec artifacts 才表达本次 intended change；尚未确认的 artifacts 视为 draft，不构成 implementation authorization。
+  documentation 是 evidence，而非永久约束。docs 与 current code/tests 不一致时必须明确识别，不得自动以 docs 为准。approved change 可以明确更新既有 behavior 及对应 documentation；ordinary change 不得顺手修复 scope 外的 documentation 或 architecture drift。
+  preferred dependency direction 为 GUI -> Application -> Domain。已知 historical exceptions 可以保留，但普通 change 不得扩大；architecture cleanup 必须作为独立 change。
+  除非经用户明确确认的 change 明确修改，否则保持有 evidence 的 compatibility surfaces，包括 persisted schemas、remote project layouts、supported scientific/file formats、workflow/state semantics、existing migrations，以及明确受 tests/docs 保护的 observable behavior。pixel-level GUI layout 和一般 wording 不自动构成 compatibility contract。
+  change 必须保持最小 scope，不得夹带 unrelated refactor。
+  只记录与当前 change 实际相关的 scientific semantics；不得 invent scientific values，也不得 silent fallback。scheduler state、program completion 和 scientific success 必须保持区分。
+  除非用户明确授权，不得执行 real external operations。
+  用户讨论和 OpenSpec planning natural language 使用简体中文；OpenSpec structural keywords/headings，以及 technical identifiers、API、class、function、module、file path、command、library/framework 名称保持英文。
+  implementation development language 必须为英文，包括 source-code identifiers、variable/function/class names、comments、docstrings、developer-facing documentation、test names、test implementation 和 internal technical terminology。
+  中文可以存在于明确的 product localization 内容中，包括 localization resource files、translation tables/catalogues、localized UI strings、localized user-facing help/error/message text，以及 localization test literals/fixtures。优先使用明确的 localization mechanism，不在业务代码中散布 hard-coded Chinese UI strings。
+  历史中文 implementation debt 不在无关 change 中顺带清理；迁移必须作为明确 change。
+
+rules:
+  proposal:
+    - 明确 problem、目标、scope、non-goals 和受影响的 compatibility surfaces，不得提出未经要求的 cleanup。
+    - 涉及 scientific behavior 或 real external operations 时，明确相关 semantics、evidence 和 authorization boundary。
+  specs:
+    - 使用可验证的 requirements 和 scenarios 描述 observable behavior；相关时分别覆盖 scheduler state、program completion 和 scientific success。
+    - behavior 发生变化时，明确受影响的 compatibility、migration 和 maintained documentation；不得冻结缺乏 evidence 的 UI details。
+  design:
+    - 说明最小 implementation approach 和 dependency impact；如必须触及 historical exception，应明确边界且不得顺带清理。
+    - 只记录相关的 scientific assumptions、defaults、units、reference 和 provenance；仅在涉及 quantitative model 或 formula 时记录 formulas。
+  tasks:
+    - 每项 task 必须可追溯至经用户明确确认的 artifacts，并包含 targeted validation；任何 real external operation 必须单独标记为需要明确授权。
+
+operations:
+  apply:
+    guidance:
+      - 只实施经用户明确确认并明确授权进入 apply 的 scope，保留 unrelated existing changes，不执行未经明确授权的 real external operations。
+      - 只能报告实际运行的 tests 或 validation；不得推测、虚构或替代缺失的 validation evidence。无法执行时标记为 unverified 并说明原因，不得使用 silent fallback 掩盖 failure 或缺失 evidence。

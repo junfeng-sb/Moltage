@@ -1,0 +1,6 @@
+# Keep repository text files deterministic across platforms.
+* text=auto eol=lf
+
+# Binary assets.
+*.png binary
+*.ico binary
