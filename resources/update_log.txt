@@ -4,260 +4,93 @@ Moltage Update Log
 0.1.13 to 0.2.1
 ============================================================
 
-Added
-
-- Added ORCA runtime configuration. Server settings now separate FHI-aims and ORCA. Slurm can perform bounded discovery of common ORCA 5.0.x, 6.0.x, and 6.1.x installations, while both Slurm and LSF support manual configuration and validation.
-- Added a two-stage ORCA project workflow. Step 1 submits, monitors, retrieves, and resubmits molecular optimizations, with optional independent frequency verification. Step 2 uses verified .gbw and orca_2json evidence to calculate linker-parameterized WBL transmission without rerunning SCF or geometry optimization.
-- WBL settings support automatic linker/contact detection, manual atom selection, independent left/right Γ₀ values, and energy-window configuration. Results persist transmission data, orbital contributions, and provenance and can be opened in the Transmission viewer.
-
-Workflow and interface
-
-- The Calculation menu is organized into External Programs and Local Analysis, with separate submenus for FHI-aims and ORCA.
-- ORCA projects display separate Optimization and WBL status indicators. Project Manager shows only actions relevant to the selected workflow, and its bottom action area uses two rows.
-- Project-status Refresh now has a bounded timeout and an immediate Stop action. Background refresh no longer blocks main-window shutdown.
-
-Scientific semantics and presentation
-
-- WBL results are explicitly labeled HYPOTHESIS and are not represented as explicit Au–molecule–Au DFT-NEGF results. User-supplied Γ₀ values and orbital-subspace choices are recorded in provenance.
-- For spin multiplicity 1, Moltage directly calculates a total transmission with spin-degeneracy semantics instead of displaying duplicate Alpha/Beta curves. Logarithmic axes use superscript 10ⁿ notation.
-
-Fixed
-
-- Fixed ORCA Slurm output redirection, Step 2 submission and completion state, Transmission opening, Step 1 resubmission crashes, and an incorrect FHI-aims control.in dependency in ORCA recovery.
-- Fixed conflicting Qt/VTK teardown order for native windows, interactors, and render windows. Closing a viewer no longer produces wglMakeCurrent error 6 or delayed heap corruption.
-
-Release preparation
-
-- The project is released under GPL-3.0-only, with Junfeng Lin as the copyright holder. Third-party notices, complete license texts, private security-reporting guidance, and in-app About/License access were added.
-- The Windows installer displays and installs the project license and third-party notices. Each GitHub Release must include both Moltage source and the corresponding SHA-256-verified third-party source bundle.
-- Packaging excludes unused Qt Virtual Keyboard, Qt PDF, Qt QML, and Qt Quick modules. FHI-aims, AITRANSS, and ORCA remain user-provided and are not included in the installer.
-
-Validation
-
-- Full offline suite: 1483 passed, 2 skipped. This validates local synthetic/offline behavior and is not a claim of compatibility with every external ORCA or HPC environment.
-- Windows packaging was validated with PyInstaller and Inno Setup. Installer and application version resources report 0.2.1, the recorded SHA-256 matches the installer, and the packaged application passed a launch smoke check with isolated local state.
+- Added separate ORCA runtime configuration and a two-stage Optimization → WBL workflow, with optional frequency analysis.
+- Added automatic or manual contact selection, explicit WBL parameters and provenance, and a dedicated Transmission viewer.
+- Reorganized calculation menus and project actions by workflow; project refresh is bounded, stoppable, and non-blocking during shutdown.
+- Singlet calculations now report one spin-degenerate total transmission, and logarithmic axes use superscript powers of ten.
+- Fixed ORCA submission, recovery, WBL status, optimization resubmission, and Qt/VTK shutdown failures.
 
 ============================================================
 0.1.12 to 0.1.13
 ============================================================
 
-Added
-
-- Added an FHI-aims species-definitions root to server configuration. Runtime discovery can populate it automatically, with manual entry available in the same interface when discovery fails. New control.in files read the exact definitions from the selected server and no longer depend on bundled copies.
-- Added optional Slurm account, partition, and qos fields and optional LSF queue and project fields. Blank values explicitly use scheduler/site defaults and are never guessed.
-- Added the parameterized MoltageAuPyramidV1 Au-pyramid generator, supporting 2–10 layers and producing a six-layer Au56 pyramid by default. Standard atoms, apex, reference corners, layer/lattice identity, and $nlayers provenance are explicit.
-- Added canonical Au(111) lattice extension. Phase 2-valid candidates can be added independently on left/right electrode layers, retain a stable side + layer + lattice key identity, and participate in the existing Geometry Undo/Redo and same-side rigid rotation behavior.
-- Added Au-extension hover prediction. Available sites show a translucent gold Au atom, blue dashed predicted bonds, and an outward-fading triangular lattice plane. Colliding sites remain visible as a red preview and cannot be added.
-
-Compatibility and fixes
-
-- Existing server profiles remain readable. Empty scheduler-admission fields emit no corresponding directives. Existing LSF profiles retain their structured span/rusage behavior, while new configurations can explicitly select the site default.
-- Fixed Step 4 AITRANSS bypassing runtime configuration by invoking bare srun. srun mode now accepts only a discovered, configured, and verified absolute launcher and fails explicitly when it is unavailable.
-- Removed fixed Au59 templates, variants A/B, and fixed atom-count assumptions. Historical projects migrate only when reference mapping can be recovered uniquely; existing calculation inputs and historical $nlayers values are not rewritten.
-
-Scientific resources and release preparation
-
-- Documented Au-placement parameters as editable Moltage initial-geometry heuristic defaults, rather than experimental constants or exact values attributed to a particular paper.
-- Replaced covalent radii with BODR/Pyykkö data and van der Waals radii with Charry–Tkatchenko ChemRxiv v2 data, with recorded unit conversion, version, source, and redistribution license.
-- Isolated default tests from real SSH, HPC, FHI-aims, and scheduler environments by using synthetic fixtures. Runtime workspaces, downloads, caches, and temporary data no longer default to the repository root.
-- Removed real-environment traces, research-specific names, runtime UUIDs, and an obsolete UI resource of unclear provenance before public release. Local configuration, credentials, and real server captures are excluded from release content.
-
-Validation
-
-- Full offline suite: 1332 passed, 2 skipped; OpenSpec strict validation passed.
+- Added per-server FHI-aims species-definition roots; new control.in files use definitions from the selected server.
+- Added optional Slurm account/partition/qos and LSF queue/project settings, plus verified absolute srun launchers and selectable LSF resource policy.
+- Replaced fixed Au59 templates with the 2–10 layer MoltageAuPyramidV1 generator and conservative historical-project migration.
+- Added canonical Au(111) lattice extension with stable lattice identity, Undo/Redo, rigid electrode rotation, collision previews, predicted bonds, and lattice-plane previews.
+- Clarified Au-placement defaults and updated covalent and van der Waals radius tables.
 
 ============================================================
 0.1.11 to 0.1.12
 ============================================================
 
-Renamed
-
-- The project was renamed to Moltage, with the subtitle Single-Molecule Quantum Transport & Analysis Workbench.
-- The Python distribution and import namespace were standardized as moltage. The desktop entry, window titles, executable, installer, icon resources, build scripts, and developer documentation adopted the new name.
-
-Compatibility
-
-- New non-sensitive local state is written to %APPDATA%\Moltage. On first launch, legacy state files are copied only when the target does not already exist; newer files are not overwritten and legacy directories are not deleted.
-- New passwords are stored under the Moltage service in Windows Credential Manager. Reads remain compatible with the legacy service, and deleting a server profile removes matching credentials from both namespaces.
-- New remote calculation and density-difference tasks use a .moltage metadata directory. Existing legacy-directory tasks remain discoverable, monitorable, updatable, and deletable. If both metadata formats exist for one task, Moltage refuses to guess and requests manual resolution.
-- The Windows installer retains the stable existing AppId, preserving upgrade identity without packaging local configuration or server parameters.
-
-Frozen state
-
-- The Moltage product name, moltage Python namespace, local-data ownership, credential service, and new remote .moltage metadata contract are accepted and frozen. Legacy identifiers are allowed only at explicit backward-compatibility boundaries and in their regression tests.
+- Renamed the application and Python package to Moltage.
+- Migrated existing local profiles and projects to Moltage-owned namespaces; new remote projects use .moltage metadata and ambiguous duplicates are rejected.
 
 ============================================================
 0.1.10 to 0.1.11
 ============================================================
 
-Added
-
-- Added File -> Export Current View... to export the current molecule, Cube isosurface, or Transmission view as PNG, JPG, JPEG, or PDF using the current camera and display settings, at 1× to 8× screen resolution.
-- Added Transmission presentation settings for axes, fonts, grid, mirrored axes, canvas, borders, curve color/width/style, and legends. Double-clicking an axis, curve, or blank plot area opens the relevant settings page.
-- Added a dedicated Tick settings page for major/minor tick length, width, direction, minor-tick visibility, and X/Y tick intervals.
-
-Improved
-
-- Improved atom-interaction highlighting. Structure and Cube views use theme-aware high-saturation outline rings and index labels for the atom under the pointer; density-difference fragment selection uses the same visual language to distinguish the two subsets.
-- Improved Transmission plot interaction and layout with curve hover, click-to-pin, keyboard point navigation, and click-on-blank-to-clear. Plots use Arial, a four-sided black frame, true superscripts/subscripts, and three significant digits; Fermi-point labels remain near their data while avoiding curves where possible.
-- Project Manager's full-server Refresh changes to Stop while running and can end the refresh without cancelling any remote calculation.
-- Improved the theme selection mark to an outlined circle with a filled center while preserving main-window position and size across the first theme change.
-
-Fixed
-
-- Fixed completed Step 4 jobs on LSF remaining yellow. Strict scientific validation now accepts both verified AITRANSS complete-grid endpoint conventions, including the inclusive TE.dat endpoint produced by aitranss.synthetic.x; truncation, range, step, Fermi-level, and completion-marker checks remain unchanged.
+- Added PNG/JPEG/PDF export for the current molecular, orbital, or Transmission view.
+- Added configurable Transmission axes, curves, legends, ticks, and direct plot interaction.
+- Added stoppable full-server refresh and improved atom-hover highlighting.
+- Fixed completed LSF Step 4 results remaining unresolved when valid AITRANSS endpoint conventions were used.
 
 ============================================================
 0.1.9 to 0.1.10
 ============================================================
 
-Improved
-
-- Improved the theme menu by presenting Light and Dark themes in separate columns with clear separators between headings, option groups, and columns.
-- Corrected the semantics and boundaries of multicolor toolbar icons: ruler ticks, angle rays, and rotation-direction colors were restored; Delete Atom uses an outline marker and Replace Atom uses a distinguishable two-sphere marker.
-
-Fixed
-
-- Fixed the inability to switch back to or view the original molecular-orbital Cube after adding contact Au atoms to a Step 1 optimized structure. Verified Au addition and terminal-H removal preserve the original Step 1 orbital binding, while orbitals remain presentation-only overlays.
-- Fixed the missing orbital entry point when opening an optimized structure from the Step 1 status indicator after later steps had begun. The same orbital catalog is rebuilt from the authoritative Step 1 directory, and the selected Cube continues to be retrieved on demand.
+- Improved the theme menu and corrected multicolor toolbar icon semantics.
+- Preserved access to Step 1 orbital Cubes after adding contact Au atoms or starting later workflow stages.
 
 ============================================================
 0.1.8 to 0.1.9
 ============================================================
 
-Added
-
-- Added four light themes—Arctic Circuit, Pearl Quantum, Aurora Glass, and Solar Paper—and two dark themes—Event Horizon and Ember Lab. The existing Future Light theme remains the default compatibility theme.
-- Added a theme-switching button to the left of the update notification in the upper-right. Themes are grouped as Light and Dark, the current choice is marked, changes apply immediately, and only a registered theme ID is stored as a local display preference.
-
-Improved
-
-- Unified the visual language of windows, panels, menus, tabs, and standard controls. Toolbar and menu SVG icons are recolored with the active theme, while scientific status indicators, orbital-sign colors, and other domain colors retain their established meaning.
-- Standardized general Processing and result-retrieval progress bars as borderless six-pixel bars to reduce obstruction of primary content.
-
-Fixed
-
-- Fixed toolbar icons shrinking after a theme change on high-DPI displays. Recolored icons now preserve the source SVG pixmap's device-pixel ratio and logical geometry.
+- Added six selectable light/dark themes while retaining Future Light as the default.
+- Unified theme styling across windows, panels, menus, tabs, controls, and icons.
+- Standardized compact progress bars and fixed high-DPI toolbar icon scaling after theme changes.
 
 ============================================================
 0.1.7 to 0.1.8
 ============================================================
 
-Added
-
-- Added Step 1 orbital-Cube output settings. HOMO-2, HOMO-1, HOMO, LUMO, LUMO+1, and LUMO+2 are enabled by default and can be disabled individually; additional positive absolute orbital indices are supported. Step 3 can output orbital Cubes by absolute index. Leaving the optional grid spacing blank preserves the FHI-aims default.
-- After successful Step 1 retrieval, Moltage performs bounded detection of requested, non-empty canonical orbital Cubes from the current control.in and shows available orbitals in the upper-right of the structure view. Clicking retrieves, verifies, and overlays the selected Cube on demand without changing the structure, Au Tool state, or later submission inputs.
-
-Improved
-
-- Test entry points now distinguish focused tests for specified files from the full pre-release suite and consistently use the Windows software-OpenGL path, avoiding forced VTK desktop rendering on the incompatible Qt offscreen platform.
-
-Fixed
-
-- Fixed completed or timed-out LSF jobs failing to reach a terminal state after event-log rotation. Status queries still target the exact Job ID but use a bounded read of the ten most recent event logs to identify Done successfully. and TERM_RUNLIMIT; potentially blocking bacct and unbounded history scans are not used.
+- Added configurable Step 1 and Step 3 orbital-Cube output and on-demand display of recovered Step 1 orbitals.
+- Fixed LSF terminal-state recovery after event-log rotation with bounded exact-Job-ID checks.
 
 ============================================================
 0.1.6 to 0.1.7
 ============================================================
 
-Added
-
-- Added bottom progress reporting for density-difference result retrieval. The transfer stage shows bytes retrieved for the current file and aggregate progress across all files, followed by explicit file-verification and full-resolution difference-building stages.
-- Added Full, Medium, and Low display resolutions to the dedicated density-difference result view, selectable from the upper-right controls or View... -> Isosurface. Medium is the default with a per-axis limit of 120; Low uses 80. Source grids below a limit are never upsampled.
-
-Improved
-
-- Large density Cubes are streamed through SFTP into a unique temporary file and atomically adopted only after remote/local size checks and SHA-256 verification. Interruptions neither adopt nor retain partial files, and verified local caches can be reused.
-- Display downsampling now uses trilinear interpolation over the same physical extent and caches each resolution. The density-interpolation slider reuses the current display grid, while scientific differences, Hirshfeld integration, and exported difference.cube data always retain the source Cube's full resolution.
-
-Fixed
-
-- Further fixed LSF output and status recovery. The user-selected application-output file is created when the job starts and is written immediately, while LSF's own report is stored in a separate .lsf.log. Status queries continue to use exact-Job-ID bjobs/bhist evidence.
-- Fixed Test Connection in Server Connections temporarily disabling Cluster Settings; the two operations no longer block each other.
-- Fixed the inability to submit Step 2 directly after adding exactly two valid contact Au atoms through the interface to a normal molecular structure. This path can skip only Step 1 and cannot incorrectly skip the required molecule–Au optimization to enter Step 3.
-- Improved density-difference cancellation, completion classification, and result recovery. Scheduler-confirmed cancellation uses a distinct gray CANCELLED state; fully produced components can become green after explicit recovery and scientific validation, with correct Cube retrieval, while unverified COMPLETED remains yellow.
+- Added detailed density-result retrieval progress and Full/Medium/Low display resolutions without changing full-resolution scientific data.
+- Added verified streaming downloads and cached physical-grid downsampling for large Cube files.
+- Improved LSF output/status recovery, density-task cancellation/recovery, and direct Step 2 submission from structures with two valid contact Au atoms.
+- Server connection testing and cluster settings can now be used independently.
 
 ============================================================
 0.1.5 to 0.1.6
 ============================================================
 
-Added
-
-- Added a local tight-binding Transmission workspace. Users can select or enter left/right electrode contact atoms, set parameters in bulk by element/bond type, and override individual atoms or bonds.
-- Added IBM Spectrum LSF support. Existing scheduler discovery performs bounded detection of the complete bsub/bjobs/bhist/bkill/lsid command set, while normal calculations, Step 3/4 retries, AITRANSS, and density-difference submission, monitoring, and cancellation retain their original Slurm or LSF ownership.
-
-Improved
-
-- Improved tight-binding results and parameter presentation. The Transmission curve opens in a separate window only after parameters are complete and Calculate is selected. Atomic energies and bond couplings are temporarily highlighted and shown on hover, then cleared on leave to avoid obscuring the structure. The Hamiltonian matrix remains closable or floatable, and this feature creates no remote task or AITRANSS result.
-- Separated Slurm and LSF submission resources into distinct interfaces and semantics. LSF uses MPI job slots, span host distribution, and rusage memory reservation instead of Slurm's CPUs per task, hard per-node memory limit, or SLURM_EXPORT_ENV; each scheduler renders its own non-requeue, environment-isolation, output, and mail directives.
-- Reworked Runtime Discovery as targeted evidence gathering. It sequentially reuses entered constraints, normalized PATH, adjacent bin/scripts/libexec paths under real installation roots, available plocate/locate indexes, program-module metadata, and ELF missing-library clues. Automatic discovery no longer recursively scans directories or exhaustively tries MPI×MKL module combinations.
-- Improved incomplete Runtime Discovery feedback. Only candidates with complete program paths, environment, and FHI-aims MPI launcher are filled automatically. Partial candidates remain available as diagnostics with explicit missing fields, likely aims*.x/aitranss*.x/mpirun/srun names, and Manual Configuration locations. Independently found MPI-launcher candidates are retained when FHI-aims is not yet located, but are never saved automatically without compatibility confirmation.
-- Renamed the unclear Scheduler standard output file field to Output file name. It accepts only safe names relative to the job workspace and can be saved blank after confirmation, but submission still requires an explicit value. The read-only SFTP folder chooser moved to Remote project workspace in Server Connections and selects only existing remote directories, never an output file or constructed path.
-
-Fixed
-
-- Fixed disagreement between LSF automatic discovery and the actual submission environment by validating the complete LSF_ENVDIR, LSF_BINDIR, LSF_LIBDIR, and LSF_SERVERDIR client-directory set with read-only lsid. Automatic discovery uses only variables published by the current/login environment and a small set of standard layouts derived from the command directory; it does not locate or reuse a specific FHI-aims/submission script or scan disks. The additional directories are stored as non-sensitive server configuration and explicitly injected with the verified command directory into every submission, status, history, and cancellation command. Validation errors distinguish missing command sets, incomplete directory sets, and lsid rejection.
-- Fixed LSF output and terminal-state recovery. Submission uses -cwd to bind the task directory explicitly; the user-selected output file is created immediately and receives pure program output continuously, while the delayed LSF report is written to a derived .lsf.log. Monitoring uses bjobs and non-blocking bhist, mapping TERM_RUNLIMIT, TERM_MEMLIMIT, and explicit cancellation reasons to timeout, memory-limit, and cancelled outcomes without invoking bacct.
-- Fixed Runtime Discovery being interrupted by a single command path containing repeated separators, . or .. in remote PATH. Read-only queries normalize candidate directories first; parsing isolates and reports candidates that remain unsafe, while stored and executed paths continue to require strict normalized-path validation.
-- Fixed Runtime Discovery in targeted Tcl Modules environments. A leading / used only for module-list display is accepted; ELF missing libraries are resolved through MKL/MPI environments before program-module search; a valid intermediate state in which several missing libraries reduce to one missing launcher is supported; and the completed FHI environment is reused to search AITRANSS. Common exact filenames were added, duplicate partial candidates are collapsed, optional branches are bounded, and command budget is reserved to prevent repeated validation of the same file until the global limit.
-- Further fixed automatic runtime discovery on namespaced Tcl Modules servers. It no longer depends on site-specific behavior of module avail mkl; instead it reads the module catalog once and filters by ELF missing-library family. From normalized PATH directories it checks only shallow, name-targeted opt/apps/software/*aims* layouts, finding same-installation-tree AITRANSS not exported to PATH without executing environment scripts or scanning the whole disk. Candidates are ordered by version evidence in ELF paths, and mpirun is selected automatically only when its installation tree matches the resolved MPI library.
+- Added a local tight-binding Transmission workspace with bulk parameters and per-atom/per-bond overrides.
+- Added IBM Spectrum LSF submission, monitoring, cancellation, and scheduler-specific resource settings.
+- Reworked runtime discovery as bounded evidence-based search with explicit partial-candidate diagnostics and manual configuration.
+- Fixed LSF environment discovery, output recovery, terminal-state mapping, and unsafe remote PATH candidates.
 
 ============================================================
 0.1.4 to 0.1.5
 ============================================================
 
-Added
-
-- Added paired R–C(CN)2 linker detection. Exactly two eligible terminal groups in one structure additionally enable their two central C binding sites while retaining the four original Cyano-N sites, with symmetric central-C Au placement, special out-of-plane N placement, and opposite-side placement for two Au atoms.
-- Added electron-density-difference calculations for arbitrary current structures, with two-fragment click, box, and index selection; three fixed-coordinate calculations in one submitted job; difference density; Hirshfeld charge changes; density interpolation; and report export.
-- Added smooth shading for orbital surfaces, adjustable specular intensity and concentration, and a one-click recommended material under View.
-- Added a Clear button to the measurement bar to remove all measurements and temporary selection marks in the current tab while preserving measurement mode.
-- Added an English-help manual FHI-aims/AITRANSS runtime configuration window, supporting installations without modules and targeted completion from already entered fields.
-
-Improved
-
-- Improved density-difference interaction. Clicking an atom again deselects it; box selection shows only a translucent dashed border; fragment indices apply immediately and automatically switch the active fragment with the input field. Submission lists every omitted atom, and recovered density results open in a separate read-only view.
-- Unified resource and status interfaces for density-difference jobs. Runtime is entered in hours and converted internally to minutes; three standard status indicators on the right report Total, Subset 1, and Subset 2 progress; right-click safely cancels their shared current Slurm job.
-- Improved orbital-surface rendering and corrected the lighting orientation of displayed surfaces.
-- Improved the Isosurface settings layout by arranging isosurface and lighting/material controls in two columns. New material parameters persist with user settings across launches.
-- Adjusted measurement-bar visibility so it appears only after the first distance or angle result. Enabling a tool or making an incomplete selection no longer changes viewport layout.
-- Accelerated server runtime discovery by prioritizing path and installation-structure evidence, consolidating and stopping module queries when sufficient, distinguishing same-name MPI paths, discovering alternate AITRANSS filenames, and explicitly warning when version compatibility is not yet verified.
-- Density-difference tasks now reuse the normal calculation deletion rules. Terminal tasks can move to and be restored from the project recycle bin, or be permanently deleted after related tabs are closed and authoritative task records are checked. Active tasks and tasks with unresolved status remain protected.
-
-Fixed
-
-- Fixed manual loading of .next_step files unnecessarily requiring a paired .in file; the file's complete structure is now read directly.
-- Fixed valid Step 4 results remaining yellow after AITRANSS rewrote tcontrol. Post-submission SHA-256 differences are diagnostic only; success continues to require current-job output, a completion marker, and a valid TE.dat grid.
-- Fixed AITRANSS runs with $ecp off and only $efermi being incorrectly reported as having incomplete result annotations, while strict Fermi-level and TE.dat checks remain in place.
-- Fixed stopped density-difference tasks having non-editable parameters after retrieval. After confirming failure, users can change fragments, electronic state, SCF, grid, and resources and submit a new task that preserves the original record; retrying the original input remains a separate action.
+- Added paired R–C(CN)2 linker detection and supported Au-placement geometries.
+- Added remote electron-density-difference calculations with fragment selection, Hirshfeld changes, interpolation, and report export.
+- Added improved orbital-surface materials, measurement clearing, and manual FHI-aims/AITRANSS runtime configuration.
+- Improved density interaction, result recovery, isosurface layout, server discovery, and task deletion handling.
+- Fixed direct .next_step loading, Step 4 validation after tcontrol changes, $ecp off validation, and density-task resubmission.
 
 ============================================================
 0.1.3 to 0.1.4
 ============================================================
 
-Added
-
-- Added a continuous Delete Atom tool. Deletion rebuilds atom indices, removes associated measurements, and enters the existing Undo/Redo history.
-- Added a continuous Replace Atom tool and periodic table. Replacement preserves coordinates, connectivity, and existing measurements and enters the existing Undo/Redo history.
-- Added menu and drag-and-drop loading for .cube and .cub files.
-- Added compatibility with common single-orbital Cube files from ORCA, Gaussian, and FHI-aims, with a required user choice between Bohr and Å when coordinate units cannot be identified reliably.
-- Added positive/negative orbital-lobe isosurfaces in opaque and fixed 50% translucent modes.
-- Added a dedicated Isosurface settings page with independent positive/negative lobe colors and non-negative isovalue entry or 0.005 stepping.
-- Added orbital Ambient and Light intensity settings, persisting the two user-confirmed values across launches.
-- Added an exclamation-mark-in-a-circle action in the upper-right that opens a read-only, scrollable update log through Update Log...
-
-Improved
-
-- Improved atom hit testing with projected screen radius and a minimum seven-pixel click target for more responsive measurement and editing.
-- Improved orbital-isosurface rendering by caching meshes and bounding complex mesh size to keep free rotation responsive.
-- Improved Au Tool highlighting so linker and contact-Au highlights appear only while Au Tool is open and remain disabled in Cube workspaces.
-- Improved FHI-aims Optimization and Step 4 settings by replacing overly long single-column dialogs with compact two-column layouts.
-- Improved the measurement footer so it appears only when a distance or angle tool is active or a result exists; an unused empty bar no longer occupies space.
-- Improved blank workspaces with centered supported-file-format guidance and an Open... button that reuses the existing file-selection and loading flow.
-
-Fixed
-
-- Fixed Light intensity changes having no visible effect; they now change actual orbital-lobe brightness without re-extracting the mesh.
-- Fixed Enter in View settings value fields closing the window; Enter now applies the value and updates the live preview only.
-- Fixed the 3D viewport jumping as if Reset View had been invoked when the first distance or angle measurement was completed.
-- Fixed the footer highlight legend remaining visible after closing Electrode Builder; it now hides with the Builder and atom highlights.
+- Added continuous Delete Atom and Replace Atom tools with Geometry Undo/Redo.
+- Added .cube/.cub loading and orbital isosurfaces for ORCA, Gaussian, and FHI-aims files.
+- Added configurable isosurface colors, opacity, lighting, and a built-in update log.
+- Improved atom selection, orbital rendering, Au Tool highlighting, settings layouts, and measurement behavior.
