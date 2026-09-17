@@ -6,9 +6,26 @@ Moltage is a portable Windows desktop workbench for molecular-junction transport
 
 > **Development release:** `v0.2.1` is an early public-development checkpoint. Use it with independently reviewed scientific inputs and retain the generated provenance records. Synthetic offline tests validate Moltage logic; they do not certify a particular ORCA, FHI-aims, AITRANSS, SSH, scheduler, or HPC installation.
 
-The product, Python distribution/import namespace, executable, installer, resources, and development documentation now use the Moltage name. New local state is written under `%APPDATA%\Moltage`, new credentials use the `Moltage` Windows Credential Manager service, and new remote manifests use `.moltage`. On first launch, known non-secret files from the former application-data directory are copied only when the corresponding Moltage file is absent; former credentials and remote manifests remain readable for compatibility and are never silently overwritten or deleted.
+## Requirements, installation, and first run
 
-The Moltage identity and compatibility contract is **fully accepted and frozen**. Product-facing code must use `Moltage`/`moltage`; former identifiers may remain only at the explicit compatibility boundaries above and in their regression tests.
+The packaged application targets 64-bit Windows. Download the installer and its
+adjacent `.sha256` file from the same GitHub pre-release, then verify it before
+running:
+
+```powershell
+Get-FileHash .\Moltage-Setup-0.2.1.exe -Algorithm SHA256
+```
+
+Compare the reported value with `Moltage-Setup-0.2.1.exe.sha256`. Run the
+installer, approve the Windows administrator prompt, and choose the destination
+directory. This development installer is currently unsigned, so Windows
+SmartScreen may report an unrecognized publisher; the checksum verifies file
+integrity, not publisher identity.
+
+Moltage can open and inspect supported local molecular files without an HPC
+account. Remote calculations require a user-configured SSH server profile and
+separately licensed, user-supplied scientific programs. FHI-aims, AITRANSS, and
+ORCA are not bundled.
 
 The managed workflow keeps scheduler completion, program completion, and scientific success as distinct states. Step 4 uses a separately configured AITRANSS runtime and records success only when the authoritative scheduler result, completion markers, active `tcontrol`, and a finite ordered transmission grid agree. Known interface-overlap and self-energy reader failures remain typed outcomes, and prior attempts remain immutable. The Project Manager opens a validated non-spin result in the tabbed workspace with logarithmic `T(E)` presentation, raw-linear `T(EF)` interpolation, session-local styling, and literal current-view image export. Optional Slurm terminal mail uses the fixed `END,FAIL` policy without SMTP credentials. These contracts are covered by deterministic synthetic offline fixtures; that validation is not evidence of acceptance on any external cluster.
 
@@ -19,11 +36,23 @@ Project guidance:
 - `docs/WORKFLOW.md`
 - `docs/CONFIGURATION.md`
 
+## Compatibility and local state
+
+The product, Python distribution/import namespace, executable, installer,
+resources, and development documentation use the Moltage name. New local state
+is written under `%APPDATA%\Moltage`, new credentials use the `Moltage` Windows
+Credential Manager service, and new remote manifests use `.moltage`. On first
+launch, known non-secret files from the former application-data directory are
+copied only when the corresponding Moltage file is absent; former credentials
+and remote manifests remain readable for compatibility and are never silently
+overwritten or deleted. Former identifiers remain only at those explicit
+compatibility boundaries and in their regression tests.
+
 Moltage does not bundle FHI-aims species definitions. Each saved server profile identifies a canonical remote root whose immediate `light`, `tight`, and `really_tight` children contain exact `<NN>_<Element>_default` files. New `control.in` generation reads and validates only the required files from that server before any remote project mutation; missing, ambiguous, malformed, or oversized definitions fail explicitly without another-accuracy fallback. Existing `control.in` files remain self-contained and readable without that profile field.
 
 ## ORCA optimization development status
 
-The current working tree adds a separate ORCA molecular-optimization workflow while leaving the established FHI-aims/AITRANSS workflow unchanged. Server settings are divided into shared `General / Cluster` settings and top-level `FHI-aims` and `ORCA` program pages; AITRANSS remains a subtab of FHI-aims. An ORCA profile needs only one remotely verified absolute `orca` executable, its selected environment preparation, and literal version evidence. Slurm offers bounded discovery through the login/configured environment and ORCA-named module candidates; LSF intentionally provides manual validation only. Neither path scans the filesystem or assumes a site-specific installation layout.
+Moltage 0.2.1 provides a separate ORCA molecular-optimization workflow while leaving the established FHI-aims/AITRANSS workflow unchanged. Server settings are divided into shared `General / Cluster` settings and top-level `FHI-aims` and `ORCA` program pages; AITRANSS remains a subtab of FHI-aims. An ORCA profile needs only one remotely verified absolute `orca` executable, its selected environment preparation, and literal version evidence. Slurm offers bounded discovery through the login/configured environment and ORCA-named module candidates; LSF intentionally provides manual validation only. Neither path scans the filesystem or assumes a site-specific installation layout.
 
 Input generation has reviewed support for ORCA 5.0.x, 6.0.x, and 6.1.x. Method and basis have no Moltage default and must be selected explicitly; charge starts at `0`, multiplicity at `1`, and both remain user decisions subject only to an electron-parity consistency check. `%MaxCore` is optional and, when present, is expressed in MB per process. Leaving it blank is valid and renders no `%maxcore`; ORCA then uses its own documented default behavior (4096 MB per process), which is a planning value rather than a hard memory limit.
 
@@ -38,8 +67,10 @@ After a verified optimization with hash-bound `.gbw` evidence, the user may expl
 The Windows x64 distribution uses the existing `moltage_gui.py` entry, a
 PyInstaller one-folder application, and a UAC-elevated Inno Setup installer. Build
 dependencies are isolated in `.venv-packaging` and pinned in
-`packaging/requirements-build.txt`. Run `packaging/build_windows.ps1` from
-PowerShell after installing those dependencies and Inno Setup 6.
+`packaging/requirements-build-lock.txt`, which is authoritative for reproducing
+the release environment. `packaging/requirements-build.txt` lists the direct
+build inputs. Run `packaging/build_windows.ps1` from PowerShell after installing
+the locked dependencies and Inno Setup 6.
 
 The generated application is windowed and does not open a console window. The
 installer contains immutable application resources only. Server profiles,

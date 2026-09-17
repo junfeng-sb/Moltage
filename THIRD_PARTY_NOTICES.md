@@ -21,12 +21,27 @@ also preserves upstream copyright, license, and bundled-component notice files.
 - Project information: <https://www.qt.io/> and
   <https://doc.qt.io/qtforpython-6/>
 
-Qt Charts is a GPLv3-or-commercial module. Because Moltage uses the GPLv3
-option, Moltage itself and the distributed combined work are provided under
-GPLv3 only. The installer does not include Qt Virtual Keyboard, Qt PDF, Qt QML,
-or Qt Quick, which Moltage does not use. Qt and Qt for Python corresponding
-source, including their component-specific third-party notices, is included in
-the release source bundle.
+Qt's essential modules are offered under LGPLv3 or GPLv3; Moltage exercises
+the permitted GPLv3 option for this distribution. Qt Charts is a
+GPLv3-or-commercial module. Moltage itself and the distributed combined work
+are therefore provided under GPLv3 only. The installer does not include Qt
+Virtual Keyboard, Qt PDF, Qt QML, or Qt Quick, which Moltage does not use. Qt
+and Qt for Python corresponding source, including their component-specific
+third-party notices, is included in the release source bundle.
+
+### Qt software OpenGL fallback
+
+The distributed `PySide6/opengl32sw.dll` is Qt's software-OpenGL fallback for
+systems without a usable hardware OpenGL driver. It contains:
+
+- **Mesa 11.2.2 llvmpipe** — MIT and component-specific terms; see
+  `LICENSES/Mesa-11.2.2.txt`.
+- **LLVM 3.6.2** — University of Illinois/NCSA Open Source License and
+  bundled-component terms; see `LICENSES/LLVM-3.6.2.txt`.
+
+The matching Mesa and LLVM upstream source archives are separate release
+source assets because the Qt source archive contains only provisioning scripts
+for this prebuilt fallback, not its source code.
 
 ## Python runtime and packaging
 
@@ -60,8 +75,14 @@ assets and contain the authoritative per-component notices.
   `LICENSES/Paramiko-5.0.0.txt`.
 - **cryptography 50.0.1** — Apache-2.0 OR BSD-3-Clause; see
   `LICENSES/cryptography-50.0.1/`.
-- **OpenSSL 4.0.2** — Apache-2.0. The exact OpenSSL source is included in the
-  release source bundle.
+- **OpenSSL 4.0.2** — Apache-2.0, statically linked into the `cryptography`
+  binding.
+- **OpenSSL 3.0.15** — Apache-2.0, used by CPython's `_ssl` and `_hashlib`
+  modules through the distributed `libssl-3.dll` and `libcrypto-3.dll`.
+
+The component mapping in `LICENSES/OpenSSL-3.0.15-and-4.0.2.txt` points to the
+complete Apache-2.0 text shipped under `LICENSES/cryptography-50.0.1/`, and
+both exact upstream source archives are included in the release source bundle.
 - **bcrypt 5.0.0** — Apache-2.0; see `LICENSES/bcrypt-5.0.0.txt`.
 - **PyNaCl 1.6.2** and its bundled **libsodium** — Apache-2.0 and ISC terms;
   see `LICENSES/PyNaCl-1.6.2/`.

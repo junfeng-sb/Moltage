@@ -201,8 +201,17 @@ class WindowsPackagingTests(unittest.TestCase):
         notices = (PROJECT_ROOT / "THIRD_PARTY_NOTICES.md").read_text("utf-8")
         self.assertIn("Copyright (C) 2026 Junfeng Lin", notices)
         self.assertIn("Qt Charts", notices)
+        self.assertIn("OpenSSL 3.0.15", notices)
+        self.assertIn("Mesa 11.2.2", notices)
+        self.assertIn("LLVM 3.6.2", notices)
         self.assertIn("FHI-aims, AITRANSS, and ORCA are **not** included", notices)
         self.assertTrue((PROJECT_ROOT / "SECURITY.md").is_file())
+        for component_license in (
+            "Mesa-11.2.2.txt",
+            "LLVM-3.6.2.txt",
+            "OpenSSL-3.0.15-and-4.0.2.txt",
+        ):
+            self.assertTrue((PROJECT_ROOT / "LICENSES" / component_license).is_file())
 
         manifest = tomllib.loads(
             (PACKAGING_ROOT / "third_party_sources.toml").read_text("utf-8")
@@ -212,11 +221,93 @@ class WindowsPackagingTests(unittest.TestCase):
         filenames = [entry["filename"] for entry in entries]
         self.assertEqual(len(filenames), len(set(filenames)))
         self.assertGreaterEqual(len(entries), 20)
+        declared_components = {
+            (entry["name"], entry["version"], entry["filename"])
+            for entry in entries
+        }
+        self.assertIn(
+            (
+                "OpenSSL (CPython runtime)",
+                "3.0.15",
+                "openssl-3.0.15.tar.gz",
+            ),
+            declared_components,
+        )
+        self.assertIn(
+            (
+                "Mesa (Qt software OpenGL fallback)",
+                "11.2.2",
+                "mesa-11.2.2.tar.xz",
+            ),
+            declared_components,
+        )
+        self.assertIn(
+            (
+                "LLVM (Qt software OpenGL fallback)",
+                "3.6.2",
+                "llvm-3.6.2.src.tar.xz",
+            ),
+            declared_components,
+        )
         for entry in entries:
             self.assertEqual(Path(entry["filename"]).name, entry["filename"])
             self.assertEqual(len(entry["sha256"]), 64)
             int(entry["sha256"], 16)
             self.assertTrue(entry["url"].startswith("https://"))
+
+    def test_built_binary_component_versions_match_source_manifest(self) -> None:
+        internal = PROJECT_ROOT / "dist" / "windows" / "Moltage" / "_internal"
+        if not internal.is_dir():
+            self.skipTest("built Windows distribution is not present")
+
+        manifest = tomllib.loads(
+            (PACKAGING_ROOT / "third_party_sources.toml").read_text("utf-8")
+        )
+        declared = {
+            (entry["name"], entry["version"])
+            for entry in manifest["source"]
+        }
+        expected = (
+            (
+                internal / "cryptography" / "hazmat" / "bindings" / "_rust.pyd",
+                b"OpenSSL 4.0.2",
+                ("OpenSSL (cryptography binding)", "4.0.2"),
+                "ascii",
+            ),
+            (
+                internal / "libcrypto-3.dll",
+                b"OpenSSL 3.0.15",
+                ("OpenSSL (CPython runtime)", "3.0.15"),
+                "ascii",
+            ),
+            (
+                internal / "libssl-3.dll",
+                "3.0.15".encode("utf-16le"),
+                ("OpenSSL (CPython runtime)", "3.0.15"),
+                "utf-16le",
+            ),
+            (
+                internal / "PySide6" / "opengl32sw.dll",
+                b"Mesa 11.2.2",
+                ("Mesa (Qt software OpenGL fallback)", "11.2.2"),
+                "ascii",
+            ),
+            (
+                internal / "PySide6" / "opengl32sw.dll",
+                b"LLVM 3.6.2",
+                ("LLVM (Qt software OpenGL fallback)", "3.6.2"),
+                "ascii",
+            ),
+        )
+        for binary, version_evidence, manifest_identity, encoding in expected:
+            with self.subTest(binary=binary.name, component=manifest_identity[0]):
+                self.assertTrue(binary.is_file())
+                self.assertIn(
+                    version_evidence,
+                    binary.read_bytes(),
+                    f"{binary.name} lacks {encoding} version evidence",
+                )
+                self.assertIn(manifest_identity, declared)
 
     def test_full_build_lock_matches_the_release_environment(self) -> None:
         lock = set(

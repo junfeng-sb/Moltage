@@ -1,4 +1,4 @@
-"""Stable GUI entry point for future Windows packaging."""
+"""Stable GUI entry point for Windows packaging."""
 
 from tools.molecule_viewer_demo import main
 

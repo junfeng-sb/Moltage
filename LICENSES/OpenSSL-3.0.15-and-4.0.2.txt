@@ -1,0 +1,14 @@
+OpenSSL 3.0.15 and OpenSSL 4.0.2
+
+License: Apache License 2.0
+
+OpenSSL 3.0.15 is used by the distributed CPython runtime libraries.
+OpenSSL 4.0.2 is statically linked into the distributed cryptography binding.
+
+The complete, unmodified Apache License 2.0 text applying to both builds is
+included at:
+
+    LICENSES/cryptography-50.0.1/LICENSE.APACHE
+
+The exact corresponding source archive for each build is included in the
+Moltage third-party source bundle.

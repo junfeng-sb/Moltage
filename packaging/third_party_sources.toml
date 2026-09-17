@@ -32,6 +32,22 @@ sha256 = "c0fdd62b91a1d36d5ee2e1fb71050a32fbc93fcdeef0fdcb41d29afaaf00d9b5"
 license = "GPL-3.0-only (selected for the Moltage distribution)"
 
 [[source]]
+name = "Mesa (Qt software OpenGL fallback)"
+version = "11.2.2"
+filename = "mesa-11.2.2.tar.xz"
+url = "https://archive.mesa3d.org/older-versions/11.x/11.2.2/mesa-11.2.2.tar.xz"
+sha256 = "40e148812388ec7c6d7b6657d5a16e2e8dabba8b97ddfceea5197947647bdfb4"
+license = "MIT and component-specific licenses"
+
+[[source]]
+name = "LLVM (Qt software OpenGL fallback)"
+version = "3.6.2"
+filename = "llvm-3.6.2.src.tar.xz"
+url = "https://releases.llvm.org/3.6.2/llvm-3.6.2.src.tar.xz"
+sha256 = "f60dc158bfda6822de167e87275848969f0558b3134892ff54fced87e4667b94"
+license = "University of Illinois/NCSA and bundled-component licenses"
+
+[[source]]
 name = "VTK"
 version = "9.7.0"
 filename = "VTK-9.7.0.tar.gz"
@@ -72,11 +88,19 @@ sha256 = "5dd9bda1c12b4162f6ff568eeb5e0ff956c28d14406e875cfe8a63a2d414ff20"
 license = "Apache-2.0 OR BSD-3-Clause"
 
 [[source]]
-name = "OpenSSL"
+name = "OpenSSL (cryptography binding)"
 version = "4.0.2"
 filename = "openssl-4.0.2.tar.gz"
 url = "https://github.com/openssl/openssl/releases/download/openssl-4.0.2/openssl-4.0.2.tar.gz"
 sha256 = "736b467530f916737b7031310ccb21d8218c6229e61e8e160cd1d3458cd543a8"
+license = "Apache-2.0"
+
+[[source]]
+name = "OpenSSL (CPython runtime)"
+version = "3.0.15"
+filename = "openssl-3.0.15.tar.gz"
+url = "https://github.com/openssl/openssl/releases/download/openssl-3.0.15/openssl-3.0.15.tar.gz"
+sha256 = "23c666d0edf20f14249b3d8f0368acaee9ab585b09e1de82107c66e1f3ec9533"
 license = "Apache-2.0"
 
 [[source]]
