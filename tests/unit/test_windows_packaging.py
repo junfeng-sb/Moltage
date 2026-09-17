@@ -28,6 +28,15 @@ class WindowsPackagingTests(unittest.TestCase):
             f"StringStruct('ProductVersion', '{expected_version}')",
             version_info,
         )
+        self.assertIn(
+            "StringStruct('CompanyName', 'Junfeng Lin')",
+            version_info,
+        )
+        self.assertIn(
+            "StringStruct('LegalCopyright', "
+            "'Copyright (C) 2026 Junfeng Lin')",
+            version_info,
+        )
         numeric_version = tuple(int(part) for part in expected_version.split("."))
         self.assertIn(
             f"filevers={numeric_version + (0,)},",
@@ -39,6 +48,13 @@ class WindowsPackagingTests(unittest.TestCase):
         )
         self.assertIn(f'#define MyAppVersion "{expected_version}"', installer)
         self.assertIn(f"VersionInfoVersion={expected_version}.0", installer)
+        self.assertIn('#define MyAppPublisher "Junfeng Lin"', installer)
+        self.assertIn("AppPublisher={#MyAppPublisher}", installer)
+        self.assertIn("VersionInfoCompany={#MyAppPublisher}", installer)
+        self.assertIn(
+            "VersionInfoCopyright=Copyright (C) 2026 {#MyAppPublisher}",
+            installer,
+        )
         self.assertIn(f'Moltage-Setup-{expected_version}.exe"', build_script)
         self.assertIn(f"0.1.13 to {expected_version}", bundled_log)
         self.assertIn(f"## 0.1.13 to {expected_version}", changelog)

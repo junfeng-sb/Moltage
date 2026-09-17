@@ -15,9 +15,11 @@ VSVersionInfo(
         StringTable(
           '040904B0',
           [
+            StringStruct('CompanyName', 'Junfeng Lin'),
             StringStruct('FileDescription', 'Moltage'),
             StringStruct('FileVersion', '0.2.1'),
             StringStruct('InternalName', 'Moltage'),
+            StringStruct('LegalCopyright', 'Copyright (C) 2026 Junfeng Lin'),
             StringStruct('OriginalFilename', 'Moltage.exe'),
             StringStruct('ProductName', 'Moltage'),
             StringStruct('ProductVersion', '0.2.1')

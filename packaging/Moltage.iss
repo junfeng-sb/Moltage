@@ -1,5 +1,6 @@
 #define MyAppName "Moltage"
 #define MyAppVersion "0.2.1"
+#define MyAppPublisher "Junfeng Lin"
 #define MyAppExeName "Moltage.exe"
 #define MyAppIcon "..\resources\icons\moltage.ico"
 
@@ -8,7 +9,10 @@ AppId={{9C0D6515-2845-4213-9027-070FDED3EDA4}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
+AppPublisher={#MyAppPublisher}
 VersionInfoVersion=0.2.1.0
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoCopyright=Copyright (C) 2026 {#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableDirPage=no
