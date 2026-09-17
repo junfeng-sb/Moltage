@@ -444,7 +444,7 @@ class UiR3MainWindowTests(unittest.TestCase):
 
         dialog_type.assert_called_once()
         content, parent = dialog_type.call_args.args
-        self.assertIn("Moltage 更新日志", content)
+        self.assertIn("Moltage Update Log", content)
         self.assertEqual(
             content,
             (PROJECT_ROOT / "resources" / "update_log.txt").read_text(

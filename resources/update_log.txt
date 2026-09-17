@@ -1,263 +1,263 @@
-Moltage 更新日志
+Moltage Update Log
 
 ============================================================
 0.1.13 to 0.2.1
 ============================================================
 
-新增
+Added
 
-- 新增 ORCA 运行时配置：服务器设置按 FHI-aims 与 ORCA 分类；Slurm 可对主流 ORCA 5.0.x、6.0.x 和 6.1.x 安装执行有界搜索，Slurm/LSF 均支持手动配置和验证。
-- 新增 ORCA 两阶段项目流程：Step 1 提交、监测、取回和重提交分子优化，并可独立运行 frequency verification；Step 2 使用已验证的 .gbw 和 orca_2json 证据计算 linker-parameterized WBL transmission，不重新运行 SCF 或几何优化。
-- WBL 设置支持 linker/contact 自动识别、原子手动点选、左右 Γ₀ 和能量窗口配置；结果可持久化 transmission 数据、轨道贡献和 provenance，并在 Transmission viewer 中查看。
+- Added ORCA runtime configuration. Server settings now separate FHI-aims and ORCA. Slurm can perform bounded discovery of common ORCA 5.0.x, 6.0.x, and 6.1.x installations, while both Slurm and LSF support manual configuration and validation.
+- Added a two-stage ORCA project workflow. Step 1 submits, monitors, retrieves, and resubmits molecular optimizations, with optional independent frequency verification. Step 2 uses verified .gbw and orca_2json evidence to calculate linker-parameterized WBL transmission without rerunning SCF or geometry optimization.
+- WBL settings support automatic linker/contact detection, manual atom selection, independent left/right Γ₀ values, and energy-window configuration. Results persist transmission data, orbital contributions, and provenance and can be opened in the Transmission viewer.
 
-工作流与界面
+Workflow and interface
 
-- Calculation 菜单按 External Programs 与 Local Analysis 分类，FHI-aims 与 ORCA 各自拥有独立子菜单。
-- ORCA 项目显示 Optimization/WBL 两盏状态灯；Project Manager 只显示与所选 workflow 相关的操作，底部操作区改为两行布局。
-- 项目状态 Refresh 新增有界 timeout 和即时 Stop；后台刷新不再阻塞主窗口关闭。
+- The Calculation menu is organized into External Programs and Local Analysis, with separate submenus for FHI-aims and ORCA.
+- ORCA projects display separate Optimization and WBL status indicators. Project Manager shows only actions relevant to the selected workflow, and its bottom action area uses two rows.
+- Project-status Refresh now has a bounded timeout and an immediate Stop action. Background refresh no longer blocks main-window shutdown.
 
-科学语义与显示
+Scientific semantics and presentation
 
-- WBL 结果明确标记为 HYPOTHESIS，不冒充显式 Au–molecule–Au DFT-NEGF；用户输入的 Γ₀ 与轨道子空间选择会记入 provenance。
-- 自旋多重度为 1 时直接计算含自旋简并语义的总 transmission，不再分别展示重复的 Alpha/Beta 曲线；对数坐标轴统一使用 10ⁿ 上标格式。
+- WBL results are explicitly labeled HYPOTHESIS and are not represented as explicit Au–molecule–Au DFT-NEGF results. User-supplied Γ₀ values and orbital-subspace choices are recorded in provenance.
+- For spin multiplicity 1, Moltage directly calculates a total transmission with spin-degeneracy semantics instead of displaying duplicate Alpha/Beta curves. Logarithmic axes use superscript 10ⁿ notation.
 
-修复
+Fixed
 
-- 修复 ORCA Slurm 脚本输出重定向、Step 2 提交与完成状态、Transmission 打开、Step 1 重提交闪退，以及 ORCA 恢复路径误依赖 FHI-aims control.in 的问题。
-- 修复 Qt/VTK 关闭时 native window、interactor 与 render window 释放顺序冲突，不再出现 wglMakeCurrent error 6 或延迟 heap corruption。
+- Fixed ORCA Slurm output redirection, Step 2 submission and completion state, Transmission opening, Step 1 resubmission crashes, and an incorrect FHI-aims control.in dependency in ORCA recovery.
+- Fixed conflicting Qt/VTK teardown order for native windows, interactors, and render windows. Closing a viewer no longer produces wglMakeCurrent error 6 or delayed heap corruption.
 
-发布准备
+Release preparation
 
-- 项目以 GPL-3.0-only 发布，版权主体为 Junfeng Lin；新增第三方组件声明、许可证文本、私密安全报告指引以及应用内 About/License 入口。
-- Windows 安装器会展示并安装项目许可证与第三方声明；同一 GitHub Release 必须同时提供 Moltage 源码和经 SHA-256 验证的第三方对应源码包。
-- 打包配置移除未使用的 Qt Virtual Keyboard、Qt PDF、Qt QML 和 Qt Quick 模块；FHI-aims、AITRANSS 与 ORCA 仍由用户自行提供，不进入安装包。
+- The project is released under GPL-3.0-only, with Junfeng Lin as the copyright holder. Third-party notices, complete license texts, private security-reporting guidance, and in-app About/License access were added.
+- The Windows installer displays and installs the project license and third-party notices. Each GitHub Release must include both Moltage source and the corresponding SHA-256-verified third-party source bundle.
+- Packaging excludes unused Qt Virtual Keyboard, Qt PDF, Qt QML, and Qt Quick modules. FHI-aims, AITRANSS, and ORCA remain user-provided and are not included in the installer.
 
-验证
+Validation
 
-- 完整离线测试：1482 passed, 2 skipped。该证据不代表对所有外部 ORCA/HPC 环境的兼容性承诺。
-- Windows packaging 已通过 PyInstaller/Inno Setup 构建：安装器与应用版本资源均为 0.2.1，SHA-256 记录与安装器匹配，打包应用通过隔离本机状态的启动 smoke check。
+- Full offline suite: 1483 passed, 2 skipped. This validates local synthetic/offline behavior and is not a claim of compatibility with every external ORCA or HPC environment.
+- Windows packaging was validated with PyInstaller and Inno Setup. Installer and application version resources report 0.2.1, the recorded SHA-256 matches the installer, and the packaged application passed a launch smoke check with isolated local state.
 
 ============================================================
 0.1.12 to 0.1.13
 ============================================================
 
-新增
+Added
 
-- 服务器配置新增 FHI-aims species definitions root：运行时发现可自动填写，失败时可在同一配置界面手动指定；新建 control.in 只读取所选服务器上的精确元素定义，不再依赖应用内置副本。
-- Slurm 配置新增可选 account、partition、qos，LSF 配置新增可选 queue、project；留空时明确使用 scheduler/site default，不进行自动猜测。
-- 新增 MoltageAuPyramidV1 参数化 Au 金字塔生成器，支持 2–10 层并默认生成六层 Au56；标准原子、apex、reference corners、layer/lattice identity 和 $nlayers 来源均具有显式 provenance。
-- 新增 Au(111) canonical lattice extension：可在左右电极的独立 layer 上添加 Phase-2 合法候选，保存稳定的 side + layer + lattice key identity，并纳入既有 Geometry Undo/Redo 和同侧刚性旋转。
-- Au extension hover 新增预测显示：可添加位置显示金色半透明 Au、蓝色虚线预测键和向外渐隐的三角晶格平面；碰撞位置保留为红色 preview 且禁止添加。
+- Added an FHI-aims species-definitions root to server configuration. Runtime discovery can populate it automatically, with manual entry available in the same interface when discovery fails. New control.in files read the exact definitions from the selected server and no longer depend on bundled copies.
+- Added optional Slurm account, partition, and qos fields and optional LSF queue and project fields. Blank values explicitly use scheduler/site defaults and are never guessed.
+- Added the parameterized MoltageAuPyramidV1 Au-pyramid generator, supporting 2–10 layers and producing a six-layer Au56 pyramid by default. Standard atoms, apex, reference corners, layer/lattice identity, and $nlayers provenance are explicit.
+- Added canonical Au(111) lattice extension. Phase 2-valid candidates can be added independently on left/right electrode layers, retain a stable side + layer + lattice key identity, and participate in the existing Geometry Undo/Redo and same-side rigid rotation behavior.
+- Added Au-extension hover prediction. Available sites show a translucent gold Au atom, blue dashed predicted bonds, and an outward-fading triangular lattice plane. Colliding sites remain visible as a red preview and cannot be added.
 
-兼容性与修复
+Compatibility and fixes
 
-- 旧 server profile 保持可读取；新增 scheduler admission 字段为空时不生成相应指令，旧 LSF profile 保留原有 structured span/rusage 行为，同时允许新配置显式选择 site default。
-- 修复 Step 4 AITRANSS 绕过 runtime configuration 调用裸 srun 的问题；srun 模式现在只接受已发现、配置并验证的绝对 launcher，缺失时明确失败。
-- 移除固定 Au59 模板、variant A/B 和固定原子数量假设；历史项目只在 reference mapping 可唯一恢复时迁移，既有计算输入和历史 $nlayers 不会被重写。
+- Existing server profiles remain readable. Empty scheduler-admission fields emit no corresponding directives. Existing LSF profiles retain their structured span/rusage behavior, while new configurations can explicitly select the site default.
+- Fixed Step 4 AITRANSS bypassing runtime configuration by invoking bare srun. srun mode now accepts only a discovered, configured, and verified absolute launcher and fails explicitly when it is unavailable.
+- Removed fixed Au59 templates, variants A/B, and fixed atom-count assumptions. Historical projects migrate only when reference mapping can be recovered uniquely; existing calculation inputs and historical $nlayers values are not rewritten.
 
-科学资源与发布准备
+Scientific resources and release preparation
 
-- 将 Au placement 参数明确记录为 Moltage 可编辑的 initial-geometry heuristic defaults，不再把精确数值表述为实验常数或特定论文的逐值来源。
-- Covalent radii 改用 BODR/Pyykkö 数据，van-der-Waals radii 改用 Charry–Tkatchenko ChemRxiv v2 数据，并记录单位转换、版本、来源和再分发许可。
-- 默认测试与真实 SSH、HPC、FHI-aims 和 scheduler 环境隔离，使用 synthetic fixtures；运行时 workspace、下载、cache 和临时数据不再以 repository root 作为默认写入位置。
-- 清理准备公开仓库时发现的真实环境痕迹、科研命名、runtime UUID 和来源不明确的旧 UI 资源；不把本机配置、凭据或真实服务器 capture 打入发布内容。
+- Documented Au-placement parameters as editable Moltage initial-geometry heuristic defaults, rather than experimental constants or exact values attributed to a particular paper.
+- Replaced covalent radii with BODR/Pyykkö data and van der Waals radii with Charry–Tkatchenko ChemRxiv v2 data, with recorded unit conversion, version, source, and redistribution license.
+- Isolated default tests from real SSH, HPC, FHI-aims, and scheduler environments by using synthetic fixtures. Runtime workspaces, downloads, caches, and temporary data no longer default to the repository root.
+- Removed real-environment traces, research-specific names, runtime UUIDs, and an obsolete UI resource of unclear provenance before public release. Local configuration, credentials, and real server captures are excluded from release content.
 
-验证
+Validation
 
-- 完整离线测试：1332 passed, 2 skipped；OpenSpec strict validation 通过。
+- Full offline suite: 1332 passed, 2 skipped; OpenSpec strict validation passed.
 
 ============================================================
 0.1.11 to 0.1.12
 ============================================================
 
-更名
+Renamed
 
-- 项目正式更名为 Moltage，并采用副标题 Single-Molecule Quantum Transport & Analysis Workbench。
-- Python distribution 与 import namespace 统一为 moltage；桌面入口、窗口标题、可执行文件、安装器、图标资源、构建脚本及开发文档同步采用新名称。
+- The project was renamed to Moltage, with the subtitle Single-Molecule Quantum Transport & Analysis Workbench.
+- The Python distribution and import namespace were standardized as moltage. The desktop entry, window titles, executable, installer, icon resources, build scripts, and developer documentation adopted the new name.
 
-兼容性
+Compatibility
 
-- 新的本机非敏感状态写入 %APPDATA%\Moltage；首次启动只复制目标位置尚不存在的旧状态文件，不覆盖新文件，也不删除旧目录。
-- 新密码写入 Windows Credential Manager 的 Moltage service；读取时仍兼容旧 service，删除服务器配置时会清理两个命名空间中的对应凭据。
-- 新远程计算及电子密度差任务使用 .moltage 元数据目录；已有旧目录任务仍可发现、监测、更新与删除。同一任务若同时存在新旧两份元数据，程序会明确拒绝猜测。
-- Windows 安装器保留既有稳定 AppId，使新版能够延续原安装的升级身份，同时不把本机配置或服务器参数打入安装包。
+- New non-sensitive local state is written to %APPDATA%\Moltage. On first launch, legacy state files are copied only when the target does not already exist; newer files are not overwritten and legacy directories are not deleted.
+- New passwords are stored under the Moltage service in Windows Credential Manager. Reads remain compatible with the legacy service, and deleting a server profile removes matching credentials from both namespaces.
+- New remote calculation and density-difference tasks use a .moltage metadata directory. Existing legacy-directory tasks remain discoverable, monitorable, updatable, and deletable. If both metadata formats exist for one task, Moltage refuses to guess and requests manual resolution.
+- The Windows installer retains the stable existing AppId, preserving upgrade identity without packaging local configuration or server parameters.
 
-冻结状态
+Frozen state
 
-- Moltage 产品名称、moltage Python 命名空间、本机数据所有权、凭据服务以及新远程 .moltage 元数据契约已经验收并冻结；旧标识仅允许存在于明确的向后兼容边界及其回归测试中。
+- The Moltage product name, moltage Python namespace, local-data ownership, credential service, and new remote .moltage metadata contract are accepted and frozen. Legacy identifiers are allowed only at explicit backward-compatibility boundaries and in their regression tests.
 
 ============================================================
 0.1.10 to 0.1.11
 ============================================================
 
-新增
+Added
 
-- 新增 File -> Export Current View...：可将当前分子、Cube 等值面或 Transmission 视图按当前相机和显示参数导出为 PNG、JPG、JPEG 或 PDF，并支持 1× 至 8× 屏幕分辨率。
-- 新增 Transmission 展示设置：可调整坐标轴、字体、网格、镜像轴、画布、边框、曲线颜色/粗细/线型及图注；双击坐标轴、曲线或空白区域可直接打开对应设置页。
-- 新增独立 Tick 设置页，可配置主/次刻度长度、粗细、朝向、次刻度显示及 X/Y 刻度间隔数量。
+- Added File -> Export Current View... to export the current molecule, Cube isosurface, or Transmission view as PNG, JPG, JPEG, or PDF using the current camera and display settings, at 1× to 8× screen resolution.
+- Added Transmission presentation settings for axes, fonts, grid, mirrored axes, canvas, borders, curve color/width/style, and legends. Double-clicking an axis, curve, or blank plot area opens the relevant settings page.
+- Added a dedicated Tick settings page for major/minor tick length, width, direction, minor-tick visibility, and X/Y tick intervals.
 
-优化
+Improved
 
-- 优化原子交互高亮：结构与 Cube 视图会用主题适配的高饱和度空心圆环和序号标记鼠标下方原子；电子密度差片段选择使用同一视觉语言区分两个 subset。
-- 优化 Transmission 图的交互与排版：支持曲线悬停、点击固定、键盘逐点移动及空白处清除；采用 Arial、四边黑框、真正上下标和三位有效数字，并让费米点标注贴近数据点且尽量避开曲线。
-- Project Manager 的全量服务器 Refresh 在运行期间会切换为 Stop，可中止本次刷新而不取消任何远端计算任务。
-- 优化主题选择标记为“空心圆圈 + 中心实心点”，并保持首次切换主题前后的主窗口位置和尺寸不变。
+- Improved atom-interaction highlighting. Structure and Cube views use theme-aware high-saturation outline rings and index labels for the atom under the pointer; density-difference fragment selection uses the same visual language to distinguish the two subsets.
+- Improved Transmission plot interaction and layout with curve hover, click-to-pin, keyboard point navigation, and click-on-blank-to-clear. Plots use Arial, a four-sided black frame, true superscripts/subscripts, and three significant digits; Fermi-point labels remain near their data while avoiding curves where possible.
+- Project Manager's full-server Refresh changes to Stop while running and can end the refresh without cancelling any remote calculation.
+- Improved the theme selection mark to an outlined circle with a filled center while preserving main-window position and size across the first theme change.
 
-修复
+Fixed
 
-- 修复 LSF 服务器上已完成的 Step 4 可能持续显示黄色的问题：严格科学校验现在兼容已验证的两种 AITRANSS 完整网格终点规则，包括 aitranss.synthetic.x 生成的终点包含式 TE.dat；截断、越界、步长、费米能和完成标记检查仍保持不变。
+- Fixed completed Step 4 jobs on LSF remaining yellow. Strict scientific validation now accepts both verified AITRANSS complete-grid endpoint conventions, including the inclusive TE.dat endpoint produced by aitranss.synthetic.x; truncation, range, step, Fermi-level, and completion-marker checks remain unchanged.
 
 ============================================================
 0.1.9 to 0.1.10
 ============================================================
 
-优化
+Improved
 
-- 优化主题切换菜单，将 Light 与 Dark 主题左右分栏显示，并为栏目标题、选项区和两栏之间增加清晰分隔线。
-- 校正工具栏多色图标的绘制语义与边界：恢复尺子刻度、量角射线和旋转方向颜色；删除原子使用空心标记，替换原子使用可区分的双球标记。
+- Improved the theme menu by presenting Light and Dark themes in separate columns with clear separators between headings, option groups, and columns.
+- Corrected the semantics and boundaries of multicolor toolbar icons: ruler ticks, angle rays, and rotation-direction colors were restored; Delete Atom uses an outline marker and Replace Atom uses a distinguishable two-sphere marker.
 
-修复
+Fixed
 
-- 修复 Step 1 优化结构加入接触 Au 后无法再次切换或查看原始分子轨道 Cube 的问题；经过验证的加 Au 与端基 H 删除会保留原始 Step 1 轨道绑定，而轨道仍只作为显示叠加。
-- 修复开始后续步骤后从 Step 1 状态灯打开优化结构时缺少轨道入口的问题；现在会从权威 Step 1 目录重新建立同一轨道目录，并继续按需取回所选 Cube。
+- Fixed the inability to switch back to or view the original molecular-orbital Cube after adding contact Au atoms to a Step 1 optimized structure. Verified Au addition and terminal-H removal preserve the original Step 1 orbital binding, while orbitals remain presentation-only overlays.
+- Fixed the missing orbital entry point when opening an optimized structure from the Step 1 status indicator after later steps had begun. The same orbital catalog is rebuilt from the authoritative Step 1 directory, and the selected Cube continues to be retrieved on demand.
 
 ============================================================
 0.1.8 to 0.1.9
 ============================================================
 
-新增
+Added
 
-- 新增 Arctic Circuit、Pearl Quantum、Aurora Glass、Solar Paper 四套浅色主题，以及 Event Horizon、Ember Lab 两套深色主题；原有 Future Light 保留为默认兼容主题。
-- 在右上角更新通知按钮左侧新增主题切换按钮，按 Light 和 Dark 分组显示并标记当前选择；主题即时应用，且仅将已注册主题 ID 保存为本机用户显示偏好。
+- Added four light themes—Arctic Circuit, Pearl Quantum, Aurora Glass, and Solar Paper—and two dark themes—Event Horizon and Ember Lab. The existing Future Light theme remains the default compatibility theme.
+- Added a theme-switching button to the left of the update notification in the upper-right. Themes are grouped as Light and Dark, the current choice is marked, changes apply immediately, and only a registered theme ID is stored as a local display preference.
 
-优化
+Improved
 
-- 统一主题的窗口、面板、菜单、标签页和普通控件视觉语言，并随当前主题重着色工具栏及菜单 SVG 图标；科学状态灯、轨道正负颜色和其他业务颜色保持原有归属。
-- 将通用 Processing 与结果取回进度条统一为无边框 6 px 细进度条，减少对主要内容的遮挡。
+- Unified the visual language of windows, panels, menus, tabs, and standard controls. Toolbar and menu SVG icons are recolored with the active theme, while scientific status indicators, orbital-sign colors, and other domain colors retain their established meaning.
+- Standardized general Processing and result-retrieval progress bars as borderless six-pixel bars to reduce obstruction of primary content.
 
-修复
+Fixed
 
-- 修复高 DPI 屏幕上切换主题后工具栏图标缩小的问题：重着色图标现在保留源 SVG 像素图的设备像素比与逻辑几何尺寸。
+- Fixed toolbar icons shrinking after a theme change on high-DPI displays. Recolored icons now preserve the source SVG pixmap's device-pixel ratio and logical geometry.
 
 ============================================================
 0.1.7 to 0.1.8
 ============================================================
 
-新增
+Added
 
-- Step 1 新增轨道 Cube 输出设置：HOMO-2、HOMO-1、HOMO、LUMO、LUMO+1、LUMO+2 默认开启且可分别取消，并支持补充正整数绝对轨道序号；Step 3 支持按绝对序号输出轨道 Cube。可选网格间距留空时继续使用 FHI-aims 默认值。
-- Step 1 成功取回后会有界检测当前 control.in 实际请求且非空的规范轨道 Cube，并在结构视图右上角显示可用轨道；点击后按需下载、校验并叠加到当前分子骨架，不改变结构、Au Tool 或后续提交输入。
+- Added Step 1 orbital-Cube output settings. HOMO-2, HOMO-1, HOMO, LUMO, LUMO+1, and LUMO+2 are enabled by default and can be disabled individually; additional positive absolute orbital indices are supported. Step 3 can output orbital Cubes by absolute index. Leaving the optional grid spacing blank preserves the FHI-aims default.
+- After successful Step 1 retrieval, Moltage performs bounded detection of requested, non-empty canonical orbital Cubes from the current control.in and shows available orbitals in the upper-right of the structure view. Clicking retrieves, verifies, and overlays the selected Cube on demand without changing the structure, Au Tool state, or later submission inputs.
 
-优化
+Improved
 
-- 测试入口明确区分指定文件的聚焦测试和发布前全量测试，并统一使用 Windows 软件 OpenGL 路径，避免把 VTK 桌面渲染测试强制运行在不兼容的 Qt offscreen 平台上。
+- Test entry points now distinguish focused tests for specified files from the full pre-release suite and consistently use the Windows software-OpenGL path, avoiding forced VTK desktop rendering on the incompatible Qt offscreen platform.
 
-修复
+Fixed
 
-- 修复 LSF 事件日志轮转后成功或超时任务无法更新终态的问题：状态查询仍只针对精确 Job ID，但通过有界读取最近 10 个事件日志稳定识别 Done successfully. 与 TERM_RUNLIMIT；不调用可能阻塞的 bacct，也不进行无界历史扫描。
+- Fixed completed or timed-out LSF jobs failing to reach a terminal state after event-log rotation. Status queries still target the exact Job ID but use a bounded read of the ten most recent event logs to identify Done successfully. and TERM_RUNLIMIT; potentially blocking bacct and unbounded history scans are not used.
 
 ============================================================
 0.1.6 to 0.1.7
 ============================================================
 
-新增
+Added
 
-- 电子密度差结果取回新增底部进度显示：传输阶段同时显示当前文件已取回字节数与全部文件总进度，随后明确显示文件校验和全分辨率差分构建阶段。
-- 电子密度差专用结果视图新增 Full、Medium、Low 三档显示分辨率，可在右上角或 View... -> Isosurface 中同步切换；默认 Medium，每轴上限为 120，Low 每轴上限为 80，原始网格低于上限时不会放大。
+- Added bottom progress reporting for density-difference result retrieval. The transfer stage shows bytes retrieved for the current file and aggregate progress across all files, followed by explicit file-verification and full-resolution difference-building stages.
+- Added Full, Medium, and Low display resolutions to the dedicated density-difference result view, selectable from the upper-right controls or View... -> Isosurface. Medium is the default with a per-axis limit of 120; Low uses 80. Source grids below a limit are never upsampled.
 
-优化
+Improved
 
-- 大型密度 Cube 改为通过 SFTP 流式写入唯一临时文件，完成远端/本地大小检查和 SHA256 校验后再原子替换；中断不会采用或遗留部分文件，已经验证的本地缓存可直接复用。
-- 显示降采样改为在相同物理范围内进行三线性插值并按档位缓存，密度插值滑条可复用当前显示网格；科学差分、Hirshfeld 积分和导出的 difference.cube 始终保留源 Cube 的全分辨率数据。
+- Large density Cubes are streamed through SFTP into a unique temporary file and atomically adopted only after remote/local size checks and SHA-256 verification. Interruptions neither adopt nor retain partial files, and verified local caches can be reused.
+- Display downsampling now uses trilinear interpolation over the same physical extent and caches each resolution. The density-interpolation slider reuses the current display grid, while scientific differences, Hirshfeld integration, and exported difference.cube data always retain the source Cube's full resolution.
 
-修复
+Fixed
 
-- 进一步修复 LSF 输出与状态回收：用户指定的应用输出文件会在任务开始时创建并即时写入，LSF 自身报告写入独立的 .lsf.log；状态查询继续使用精确 Job ID 的 bjobs/bhist 证据。
-- 修复 Server Connections 中执行 Test Connection 时会临时禁用 Cluster Settings 的问题，两项操作现在互不阻塞。
-- 修复在普通分子结构上通过界面加入恰好两个有效接触 Au 后无法直接提交 Step 2 的问题；该路径只允许跳过 Step 1，不会错误跳过必要的分子–Au 优化进入 Step 3。
-- 完善电子密度差取消、完成判定与结果恢复：调度器明确取消时使用独立灰色 CANCELLED 状态；已完整产出的分量可在显式恢复时通过科学校验转为绿色，并正确取回 Cube，而未验证的 COMPLETED 仍保持黄色。
+- Further fixed LSF output and status recovery. The user-selected application-output file is created when the job starts and is written immediately, while LSF's own report is stored in a separate .lsf.log. Status queries continue to use exact-Job-ID bjobs/bhist evidence.
+- Fixed Test Connection in Server Connections temporarily disabling Cluster Settings; the two operations no longer block each other.
+- Fixed the inability to submit Step 2 directly after adding exactly two valid contact Au atoms through the interface to a normal molecular structure. This path can skip only Step 1 and cannot incorrectly skip the required molecule–Au optimization to enter Step 3.
+- Improved density-difference cancellation, completion classification, and result recovery. Scheduler-confirmed cancellation uses a distinct gray CANCELLED state; fully produced components can become green after explicit recovery and scientific validation, with correct Cube retrieval, while unverified COMPLETED remains yellow.
 
 ============================================================
 0.1.5 to 0.1.6
 ============================================================
 
-新增
+Added
 
-- 添加本地紧束缚 Transmission 工作区：可从当前结构选择或填写左右电极接触原子，按元素/键类型批量设置参数，并对单个原子或键进行覆盖。
-- 添加 IBM Spectrum LSF 支持：在原有调度器搜索中有界检测完整的 bsub/bjobs/bhist/bkill/lsid 命令组，并让普通计算、Step 3/4 重试、AITRANSS、电子密度差的提交、监测与取消都保留各自的 Slurm 或 LSF 归属。
+- Added a local tight-binding Transmission workspace. Users can select or enter left/right electrode contact atoms, set parameters in bulk by element/bond type, and override individual atoms or bonds.
+- Added IBM Spectrum LSF support. Existing scheduler discovery performs bounded detection of the complete bsub/bjobs/bhist/bkill/lsid command set, while normal calculations, Step 3/4 retries, AITRANSS, and density-difference submission, monitoring, and cancellation retain their original Slurm or LSF ownership.
 
-优化
+Improved
 
-- 优化紧束缚结果与参数显示：Transmission 曲线仅在参数完整并点击 Calculate 后于独立窗口打开；原子能量和键耦合改为鼠标悬停时临时高亮并显示，离开后自动清除，避免遮挡结构。Hamiltonian 矩阵仍可关闭或浮动，该功能不创建远端任务或 AITRANSS 结果。
-- 将 Slurm 与 LSF 提交资源拆分为独立界面和语义：LSF 使用 MPI job slots、span 主机分布和 rusage 内存预约，不再套用 Slurm 的 CPUs-per-task、每节点硬内存限制或 SLURM_EXPORT_ENV；两类调度器的非重排、环境隔离、输出和邮件选项分别生成对应指令。
-- 重构 Runtime Discovery 为定向证据搜索：依次复用已填约束、规范化 PATH、真实安装根的 bin/scripts/libexec 邻接关系、可用的 plocate/locate 索引、程序 module 元数据及 ELF 缺失库线索；自动路径不再递归扫描目录，也不再穷举 MPI×MKL module 组合。
-- 完善 Runtime Discovery 缺失反馈：仅路径、环境和 FHI-aims MPI 启动器均完整的候选才会自动填入；部分候选保留为诊断，并逐项给出缺失字段、可能的 aims*.x/aitranss*.x/mpirun/srun 名称和 Manual Configuration 手动填写位置；FHI-aims 尚未定位时仍会保留独立发现的 MPI 启动器候选，但不会未经兼容性确认就自动写入。
-- 将含义不直观的 Scheduler standard output file 更名为 Output file name：该字段仅接受相对于任务工作目录的安全文件名，允许在确认后暂存空白配置，但提交前仍明确要求补全。只读 SFTP 文件夹按钮迁移到 Server Connections 的 Remote project workspace，只选择已有远端目录，不选择或拼接输出文件。
+- Improved tight-binding results and parameter presentation. The Transmission curve opens in a separate window only after parameters are complete and Calculate is selected. Atomic energies and bond couplings are temporarily highlighted and shown on hover, then cleared on leave to avoid obscuring the structure. The Hamiltonian matrix remains closable or floatable, and this feature creates no remote task or AITRANSS result.
+- Separated Slurm and LSF submission resources into distinct interfaces and semantics. LSF uses MPI job slots, span host distribution, and rusage memory reservation instead of Slurm's CPUs per task, hard per-node memory limit, or SLURM_EXPORT_ENV; each scheduler renders its own non-requeue, environment-isolation, output, and mail directives.
+- Reworked Runtime Discovery as targeted evidence gathering. It sequentially reuses entered constraints, normalized PATH, adjacent bin/scripts/libexec paths under real installation roots, available plocate/locate indexes, program-module metadata, and ELF missing-library clues. Automatic discovery no longer recursively scans directories or exhaustively tries MPI×MKL module combinations.
+- Improved incomplete Runtime Discovery feedback. Only candidates with complete program paths, environment, and FHI-aims MPI launcher are filled automatically. Partial candidates remain available as diagnostics with explicit missing fields, likely aims*.x/aitranss*.x/mpirun/srun names, and Manual Configuration locations. Independently found MPI-launcher candidates are retained when FHI-aims is not yet located, but are never saved automatically without compatibility confirmation.
+- Renamed the unclear Scheduler standard output file field to Output file name. It accepts only safe names relative to the job workspace and can be saved blank after confirmation, but submission still requires an explicit value. The read-only SFTP folder chooser moved to Remote project workspace in Server Connections and selects only existing remote directories, never an output file or constructed path.
 
-修复
+Fixed
 
-- 修复 LSF 自动检测与实际提交环境不一致的问题：通过只读 lsid 验证完整的 LSF_ENVDIR、LSF_BINDIR、LSF_LIBDIR、LSF_SERVERDIR 客户端目录集；自动检测仅使用当前/登录环境公布的变量和由命令目录推导的少量标准安装布局，不定位或复用特定 FHI-aims/提交脚本，也不扫盘。三个额外目录会写入非敏感服务器配置，并与已验证命令目录一起在提交、状态查询、历史查询和取消命令中逐次显式注入。验证错误现在明确区分命令组缺失、目录集不完整和 lsid 拒绝。
-- 修复 LSF 输出与终态回收：提交时用 -cwd 显式绑定任务目录，用户指定的输出文件在任务启动时立即创建并持续接收纯程序输出，LSF 延迟报告改写入派生的 .lsf.log；监测使用 bjobs 与不会阻塞的 bhist，正确返回超时、内存不足和取消原因，不再调用目标服务器上会挂起的 bacct。
-- 修复 Runtime Discovery 会被远端 PATH 中含重复分隔符、. 或 .. 的单个命令路径中断的问题：只读查询先规范化候选目录，解析时隔离并报告仍不安全的候选，而最终保存和执行的路径继续接受严格规范化校验。
-- 修复目标式 Tcl Modules 环境中的 Runtime Discovery：接受模块列表仅用于显示的前导 /，先用 ELF 缺库完成 MKL/MPI 环境再搜索程序 module，允许“多个库缺失降为一个启动器缺失”的有效中间状态，并用完成后的 FHI 环境重新搜索 AITRANSS；补充常见精确文件名、折叠重复部分候选，并限制可选分支且预留命令预算，避免相同文件被重复验证直到全局上限。
-- 修复 namespaced Tcl Modules 服务器的自动运行时检测：不再依赖 module avail mkl 的站点匹配行为，而是一次读取并按 ELF 缺失库族过滤模块目录；从规范化 PATH 目录只检查浅层、名称定向的 opt/apps/software/*aims* 布局，因此可找到未导出到 PATH 的同安装树 AITRANSS，而不执行环境脚本或全盘扫描。候选按 ELF 路径中的版本证据排序，mpirun 仅在其安装树与实际解析到的 MPI 库一致时自动采用。
+- Fixed disagreement between LSF automatic discovery and the actual submission environment by validating the complete LSF_ENVDIR, LSF_BINDIR, LSF_LIBDIR, and LSF_SERVERDIR client-directory set with read-only lsid. Automatic discovery uses only variables published by the current/login environment and a small set of standard layouts derived from the command directory; it does not locate or reuse a specific FHI-aims/submission script or scan disks. The additional directories are stored as non-sensitive server configuration and explicitly injected with the verified command directory into every submission, status, history, and cancellation command. Validation errors distinguish missing command sets, incomplete directory sets, and lsid rejection.
+- Fixed LSF output and terminal-state recovery. Submission uses -cwd to bind the task directory explicitly; the user-selected output file is created immediately and receives pure program output continuously, while the delayed LSF report is written to a derived .lsf.log. Monitoring uses bjobs and non-blocking bhist, mapping TERM_RUNLIMIT, TERM_MEMLIMIT, and explicit cancellation reasons to timeout, memory-limit, and cancelled outcomes without invoking bacct.
+- Fixed Runtime Discovery being interrupted by a single command path containing repeated separators, . or .. in remote PATH. Read-only queries normalize candidate directories first; parsing isolates and reports candidates that remain unsafe, while stored and executed paths continue to require strict normalized-path validation.
+- Fixed Runtime Discovery in targeted Tcl Modules environments. A leading / used only for module-list display is accepted; ELF missing libraries are resolved through MKL/MPI environments before program-module search; a valid intermediate state in which several missing libraries reduce to one missing launcher is supported; and the completed FHI environment is reused to search AITRANSS. Common exact filenames were added, duplicate partial candidates are collapsed, optional branches are bounded, and command budget is reserved to prevent repeated validation of the same file until the global limit.
+- Further fixed automatic runtime discovery on namespaced Tcl Modules servers. It no longer depends on site-specific behavior of module avail mkl; instead it reads the module catalog once and filters by ELF missing-library family. From normalized PATH directories it checks only shallow, name-targeted opt/apps/software/*aims* layouts, finding same-installation-tree AITRANSS not exported to PATH without executing environment scripts or scanning the whole disk. Candidates are ordered by version evidence in ELF paths, and mpirun is selected automatically only when its installation tree matches the resolved MPI library.
 
 ============================================================
 0.1.4 to 0.1.5
 ============================================================
 
-新增
+Added
 
-- 添加成对 `R–C(CN)2` linker 识别：仅在同一结构中恰好出现两个合格端基时额外启用两个中心 C 结合位点，同时保留四个原有 Cyano-N 位点，并提供中心 C 对称加金、特殊 N 面外加金及双 Au 异侧放置。
-- 添加电子密度差计算：支持任意当前结构的双片段点选、框选与编号输入，单任务提交三组固定坐标计算，提供差分密度、Hirshfeld 电荷变化、密度插值和报告导出。
-- 添加了轨道曲面的平滑着色、可调高光强度和高光集中度，并在 View 中提供一键推荐材质。
-- 添加了测量栏 Clear 按钮，一键清除当前标签页的全部测量及临时点选标记，并保留测量模式。
-- 添加带英文帮助的 FHI-aims / AITRANSS 手动运行环境配置窗口，支持无 module 的安装方式以及根据已填字段定向补全。
+- Added paired R–C(CN)2 linker detection. Exactly two eligible terminal groups in one structure additionally enable their two central C binding sites while retaining the four original Cyano-N sites, with symmetric central-C Au placement, special out-of-plane N placement, and opposite-side placement for two Au atoms.
+- Added electron-density-difference calculations for arbitrary current structures, with two-fragment click, box, and index selection; three fixed-coordinate calculations in one submitted job; difference density; Hirshfeld charge changes; density interpolation; and report export.
+- Added smooth shading for orbital surfaces, adjustable specular intensity and concentration, and a one-click recommended material under View.
+- Added a Clear button to the measurement bar to remove all measurements and temporary selection marks in the current tab while preserving measurement mode.
+- Added an English-help manual FHI-aims/AITRANSS runtime configuration window, supporting installations without modules and targeted completion from already entered fields.
 
-优化
+Improved
 
-- 优化电子密度差交互：点选原子可再次点击取消，框选仅显示透明虚线边框，片段编号即时生效并随输入框自动切换活动片段；提交时会列出所有遗漏原子，恢复后的密度结果在独立只读视图中显示。
-- 统一电子密度差任务的资源与状态界面：运行时长按小时输入并在后台换算为分钟，右侧三盏标准状态灯分别显示 Total、Subset 1、Subset 2 进度，右键可安全取消三者共用的当前 Slurm 作业。
-- 增强了轨道曲面渲染并修正显示面的光照朝向。
-- 优化了 Isosurface 设置布局，将等值面与光照材质分为左右两栏，新增材质参数可随用户设置保存至下次启动。
-- 调整了测量栏出现时机，仅在首个距离或角度结果产生后显示，启用工具和未完成点选时不再改变视口布局。
-- 加快了服务器运行环境检测，优先复用路径与安装结构线索、合并并按需停止 module 查询，支持区分同名 MPI 多路径及发现不同文件名的 AITRANSS，并明确提示尚未验证的版本兼容性。
-- 电子密度差任务复用普通计算的删除规则：终态任务可移入并恢复自项目回收站，也可在关闭相关标签页并复核权威任务记录后永久删除；活动或状态未决任务仍禁止删除。
+- Improved density-difference interaction. Clicking an atom again deselects it; box selection shows only a translucent dashed border; fragment indices apply immediately and automatically switch the active fragment with the input field. Submission lists every omitted atom, and recovered density results open in a separate read-only view.
+- Unified resource and status interfaces for density-difference jobs. Runtime is entered in hours and converted internally to minutes; three standard status indicators on the right report Total, Subset 1, and Subset 2 progress; right-click safely cancels their shared current Slurm job.
+- Improved orbital-surface rendering and corrected the lighting orientation of displayed surfaces.
+- Improved the Isosurface settings layout by arranging isosurface and lighting/material controls in two columns. New material parameters persist with user settings across launches.
+- Adjusted measurement-bar visibility so it appears only after the first distance or angle result. Enabling a tool or making an incomplete selection no longer changes viewport layout.
+- Accelerated server runtime discovery by prioritizing path and installation-structure evidence, consolidating and stopping module queries when sufficient, distinguishing same-name MPI paths, discovering alternate AITRANSS filenames, and explicitly warning when version compatibility is not yet verified.
+- Density-difference tasks now reuse the normal calculation deletion rules. Terminal tasks can move to and be restored from the project recycle bin, or be permanently deleted after related tabs are closed and authoritative task records are checked. Active tasks and tasks with unresolved status remain protected.
 
-修复
+Fixed
 
-- 修复了手动载入 .next_step 文件时无谓要求配套 .in 文件的问题；现在直接读取该文件自身的完整结构。
-- 修复了 Step 4 有效结果因 AITRANSS 运行后改写 `tcontrol` 而停留在黄色问号的问题；提交后 SHA256 差异仅作诊断，成功仍由当前作业输出、完成标记和 `TE.dat` 网格共同判定。
-- 修复了 `$ecp off` 的 AITRANSS 仅写入 `$efermi` 时被误报为结果注释不完整的问题，并继续严格核对费米能与 `TE.dat`。
-- 修复了已停止电子密度差任务取回后参数无法编辑的问题；确认失败后可修改片段、电子态、SCF、网格和资源并提交为保留原任务记录的新任务，原输入重试仍保持独立。
+- Fixed manual loading of .next_step files unnecessarily requiring a paired .in file; the file's complete structure is now read directly.
+- Fixed valid Step 4 results remaining yellow after AITRANSS rewrote tcontrol. Post-submission SHA-256 differences are diagnostic only; success continues to require current-job output, a completion marker, and a valid TE.dat grid.
+- Fixed AITRANSS runs with $ecp off and only $efermi being incorrectly reported as having incomplete result annotations, while strict Fermi-level and TE.dat checks remain in place.
+- Fixed stopped density-difference tasks having non-editable parameters after retrieval. After confirming failure, users can change fragments, electronic state, SCF, grid, and resources and submit a new task that preserves the original record; retrying the original input remains a separate action.
 
 ============================================================
 0.1.3 to 0.1.4
 ============================================================
 
-新增
+Added
 
-- 添加了连续删除原子工具，删除操作会同步重建原子索引、移除关联测量并加入现有 Undo/Redo 历史。
-- 添加了连续替换原子工具和元素周期表，替换操作会保留坐标、连接关系及现有测量并加入现有 Undo/Redo 历史。
-- 添加了 .cube 和 .cub 文件的菜单载入与拖拽载入支持。
-- 添加了 ORCA、Gaussian 和 FHI-aims 常见单轨道 Cube 文件兼容，并在坐标单位无法可靠确定时要求用户选择 Bohr 或 Å。
-- 添加了正负轨道 lobe 的等值面显示，并支持不透明和固定 50% 半透明两种模式。
-- 添加了独立的 Isosurface 设置标签页，可分别设置正负 lobe 颜色并通过输入或 0.005 步长调整非负 isovalue。
-- 添加了轨道 Ambient 和 Light intensity 设置，并将用户确认后的两个数值持久化到下次启动。
-- 添加了右上角圆圈感叹号入口，通过 Update Log... 打开只读、可滚动的更新日志。
+- Added a continuous Delete Atom tool. Deletion rebuilds atom indices, removes associated measurements, and enters the existing Undo/Redo history.
+- Added a continuous Replace Atom tool and periodic table. Replacement preserves coordinates, connectivity, and existing measurements and enters the existing Undo/Redo history.
+- Added menu and drag-and-drop loading for .cube and .cub files.
+- Added compatibility with common single-orbital Cube files from ORCA, Gaussian, and FHI-aims, with a required user choice between Bohr and Å when coordinate units cannot be identified reliably.
+- Added positive/negative orbital-lobe isosurfaces in opaque and fixed 50% translucent modes.
+- Added a dedicated Isosurface settings page with independent positive/negative lobe colors and non-negative isovalue entry or 0.005 stepping.
+- Added orbital Ambient and Light intensity settings, persisting the two user-confirmed values across launches.
+- Added an exclamation-mark-in-a-circle action in the upper-right that opens a read-only, scrollable update log through Update Log...
 
-优化
+Improved
 
-- 优化了原子点击判定，使用屏幕投影半径和最小 7 像素点击范围提高测量与编辑时的点选响应。
-- 优化了轨道等值面渲染，通过缓存网格和限制复杂网格规模保持自由旋转流畅。
-- 优化了 Au Tool 高亮行为，使 linker 和接触 Au 高亮仅在 Au Tool 打开时显示，并在 Cube 工作区中保持关闭。
-- 优化了 FHI-aims Optimization 和 Step 4 设置窗口，将过长的单栏内容调整为紧凑双栏布局。
-- 优化了测量底栏，仅在距离或角度工具启用或已有测量结果时显示，未使用的空栏不再占位。
-- 优化了空白工作区，在中央显示支持的文件格式和 Open... 按钮，复用现有文件选择与加载流程。
+- Improved atom hit testing with projected screen radius and a minimum seven-pixel click target for more responsive measurement and editing.
+- Improved orbital-isosurface rendering by caching meshes and bounding complex mesh size to keep free rotation responsive.
+- Improved Au Tool highlighting so linker and contact-Au highlights appear only while Au Tool is open and remain disabled in Cube workspaces.
+- Improved FHI-aims Optimization and Step 4 settings by replacing overly long single-column dialogs with compact two-column layouts.
+- Improved the measurement footer so it appears only when a distance or angle tool is active or a result exists; an unused empty bar no longer occupies space.
+- Improved blank workspaces with centered supported-file-format guidance and an Open... button that reuses the existing file-selection and loading flow.
 
-修复
+Fixed
 
-- 修复了 Light intensity 调整没有可见效果的问题，使其直接改变轨道 lobe 的实际显示亮度而不重新提取网格。
-- 修复了在 View 设置数值框中按 Enter 会关闭窗口的问题，现在 Enter 只应用数值并同步实时预览。
-- 修复了首次完成距离或角度测量时 3D 视口发生类似 Reset View 跳变的问题。
-- 修复了关闭 Electrode Builder 后底栏高亮颜色指引仍然显示的问题，使其与 Builder 和原子高亮同步隐藏。
+- Fixed Light intensity changes having no visible effect; they now change actual orbital-lobe brightness without re-extracting the mesh.
+- Fixed Enter in View settings value fields closing the window; Enter now applies the value and updates the live preview only.
+- Fixed the 3D viewport jumping as if Reset View had been invoked when the first distance or angle measurement was completed.
+- Fixed the footer highlight legend remaining visible after closing Electrode Builder; it now hides with the Builder and atom highlights.

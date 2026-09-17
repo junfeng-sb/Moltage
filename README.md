@@ -1,141 +1,208 @@
 # Moltage
 
-**Single-Molecule Quantum Transport & Analysis Workbench**
+<p align="center">
+  <img src="packaging/assets/moltage.png" alt="Moltage logo" width="220">
+</p>
 
-Moltage is a portable Windows desktop workbench for molecular-junction transport calculations and related electronic-structure analysis. Its current remote workflow uses FHI-aims on Linux with Slurm or IBM Spectrum LSF, followed by AITRANSS; local molecular preparation, orbital and density visualization, density-difference analysis, and tight-binding transmission are integrated in the same application.
+<p align="center">
+  <strong>Single-Molecule Quantum Transport &amp; Analysis Workbench</strong>
+</p>
 
-> **Development release:** `v0.2.1` is an early public-development checkpoint. Use it with independently reviewed scientific inputs and retain the generated provenance records. Synthetic offline tests validate Moltage logic; they do not certify a particular ORCA, FHI-aims, AITRANSS, SSH, scheduler, or HPC installation.
+<p align="center">
+  A Windows desktop application for building molecular junctions, running structured remote calculations, and inspecting electronic-structure and transport results in one workspace.
+</p>
 
-## Requirements, installation, and first run
+<p align="center">
+  <a href="https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.1">Download v0.2.1</a>
+  · <a href="docs/WORKFLOW.md">Workflows</a>
+  · <a href="docs/CONFIGURATION.md">Configuration</a>
+  · <a href="LICENSE">GPL-3.0-only</a>
+</p>
 
-The packaged application targets 64-bit Windows. Download the installer and its
-adjacent `.sha256` file from the same GitHub pre-release, then verify it before
-running:
+> **Development release:** v0.2.1 is an early public checkpoint. Review all
+> scientific inputs independently and retain the generated provenance records.
+> Moltage's offline tests validate application logic; they do not certify a
+> particular ORCA, FHI-aims, AITRANSS, SSH, scheduler, or HPC installation.
 
-```powershell
-Get-FileHash .\Moltage-Setup-0.2.1.exe -Algorithm SHA256
-```
+<p align="center">
+  <img src="docs/images/readme/main-workspace.png" alt="Moltage molecular workspace" width="100%">
+</p>
 
-Compare the reported value with `Moltage-Setup-0.2.1.exe.sha256`. Run the
-installer, approve the Windows administrator prompt, and choose the destination
-directory. This development installer is currently unsigned, so Windows
-SmartScreen may report an unrecognized publisher; the checksum verifies file
-integrity, not publisher identity.
+Moltage connects molecular preparation, remote scientific programs and result
+inspection without treating scheduler completion as scientific success. It is
+designed for explicit, reviewable workflows: users select scientific settings,
+external programs remain user supplied, and unsupported or incomplete evidence
+fails visibly instead of falling back silently.
 
-Moltage can open and inspect supported local molecular files without an HPC
-account. Remote calculations require a user-configured SSH server profile and
-separately licensed, user-supplied scientific programs. FHI-aims, AITRANSS, and
-ORCA are not bundled.
+## Highlights
 
-The managed workflow keeps scheduler completion, program completion, and scientific success as distinct states. Step 4 uses a separately configured AITRANSS runtime and records success only when the authoritative scheduler result, completion markers, active `tcontrol`, and a finite ordered transmission grid agree. Known interface-overlap and self-energy reader failures remain typed outcomes, and prior attempts remain immutable. The Project Manager opens a validated non-spin result in the tabbed workspace with logarithmic `T(E)` presentation, raw-linear `T(EF)` interpolation, session-local styling, and literal current-view image export. Optional Slurm terminal mail uses the fixed `END,FAIL` policy without SMTP credentials. These contracts are covered by deterministic synthetic offline fixtures; that validation is not evidence of acceptance on any external cluster.
+- **Molecular workspace** — open XYZ, MOL V2000, FHI-aims geometry and Cube
+  files; inspect connectivity, labels, measurements, orbitals and scalar fields.
+- **Contact-aware electrode construction** — detect supported linker sites,
+  place contact Au atoms and build deterministic 2–10 layer Au pyramids, with
+  interactive same-layer Au(111) extension.
+- **FHI-aims + AITRANSS workflow** — manage molecular optimization,
+  molecule–Au optimization, transport convergence and validated transmission
+  recovery on Slurm or IBM Spectrum LSF systems.
+- **ORCA workflow** — submit version-aware geometry optimization, optionally run
+  frequency calculations, and start an explicit post-optimization WBL analysis
+  from verified wavefunction evidence.
+- **Transport inspection** — view logarithmic transmission curves, Fermi-level
+  values and spin-resolved ORCA WBL output, then export the current visual state.
+- **Project tracking** — preserve scheduler, program and scientific states as
+  separate evidence while monitoring multiple calculations.
+- **Local analysis** — run the independent tight-binding workspace without an
+  HPC connection; remote electron-density-difference analysis is also available.
 
-Project guidance:
+## Visual tour
 
-- `docs/PROJECT_SCOPE.md`
-- `docs/ARCHITECTURE.md`
-- `docs/WORKFLOW.md`
-- `docs/CONFIGURATION.md`
+### Build a molecular junction
 
-## Compatibility and local state
+Moltage reuses detected linker/contact identities throughout electrode
+preparation. The canonical electrode geometry is generated by Moltage rather
+than loaded from a bundled third-party cluster template.
 
-The product, Python distribution/import namespace, executable, installer,
-resources, and development documentation use the Moltage name. New local state
-is written under `%APPDATA%\Moltage`, new credentials use the `Moltage` Windows
-Credential Manager service, and new remote manifests use `.moltage`. On first
-launch, known non-secret files from the former application-data directory are
-copied only when the corresponding Moltage file is absent; former credentials
-and remote manifests remain readable for compatibility and are never silently
-overwritten or deleted. Former identifiers remain only at those explicit
-compatibility boundaries and in their regression tests.
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/readme/electrode-builder-contacts.png" alt="Detected molecular contacts before Au pyramid construction"></td>
+    <td width="50%"><img src="docs/images/readme/electrode-builder-junction.png" alt="Completed molecular junction with two canonical Au pyramids"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Recovered contact geometry and electrode-side assignment</sub></td>
+    <td align="center"><sub>Completed two-sided canonical Au junction</sub></td>
+  </tr>
+</table>
 
-Moltage does not bundle FHI-aims species definitions. Each saved server profile identifies a canonical remote root whose immediate `light`, `tight`, and `really_tight` children contain exact `<NN>_<Element>_default` files. New `control.in` generation reads and validates only the required files from that server before any remote project mutation; missing, ambiguous, malformed, or oversized definitions fail explicitly without another-accuracy fallback. Existing `control.in` files remain self-contained and readable without that profile field.
+### Inspect molecular orbitals
 
-## ORCA optimization development status
+Recovered frontier-orbital Cube files can be loaded on demand over the matching
+geometry. Isovalue, color, material and lighting controls affect presentation
+only; they do not modify calculation inputs.
 
-Moltage 0.2.1 provides a separate ORCA molecular-optimization workflow while leaving the established FHI-aims/AITRANSS workflow unchanged. Server settings are divided into shared `General / Cluster` settings and top-level `FHI-aims` and `ORCA` program pages; AITRANSS remains a subtab of FHI-aims. An ORCA profile needs only one remotely verified absolute `orca` executable, its selected environment preparation, and literal version evidence. Slurm offers bounded discovery through the login/configured environment and ORCA-named module candidates; LSF intentionally provides manual validation only. Neither path scans the filesystem or assumes a site-specific installation layout.
+<p align="center">
+  <img src="docs/images/readme/molecular-orbital-view.png" alt="Frontier molecular orbital displayed in the Moltage viewer" width="100%">
+</p>
 
-Input generation has reviewed support for ORCA 5.0.x, 6.0.x, and 6.1.x. Method and basis have no Moltage default and must be selected explicitly; charge starts at `0`, multiplicity at `1`, and both remain user decisions subject only to an electron-parity consistency check. `%MaxCore` is optional and, when present, is expressed in MB per process. Leaving it blank is valid and renders no `%maxcore`; ORCA then uses its own documented default behavior (4096 MB per process), which is a planning value rather than a hard memory limit.
+### Review transport results
 
-Optimization success requires separate agreement between scheduler success, ORCA normal termination, the documented optimization-converged marker, and an ordered finite `orca_opt.xyz`. A missing `.gbw` does not negate a verified optimization but prevents the optional WBL stage. Frequency is a separate, user-started `FREQ` or `NUMFREQ` stage that inherits the optimized scientific settings; its evidence records ORCA-reported imaginary-mode annotations without claiming that a global minimum has been proved.
+FHI-aims/AITRANSS and ORCA WBL results use dedicated viewers. The plots below
+were generated from **synthetic demonstration data** and are not scientific
+results or external-environment acceptance evidence.
 
-ORCA projects display two status indicators: optimization and WBL transmission. After opening the ORCA structure, `Calculation > ORCA` contains optimization resubmission, WBL, frequency and completed-WBL viewing; WBL/frequency do not occupy the Project Manager footer. A queued, running or failed optimization can reopen its hash-bound submitted `orca_opt.inp` without any FHI-aims project file, and resubmission preloads its structured settings. Before a replacement is submitted, Moltage revalidates the exact prior scheduler Job and cancels it when it is still active; an uncertain status or cancellation outcome blocks the new submission.
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/readme/aitranss-transmission-synthetic.png" alt="Synthetic AITRANSS transmission viewer"></td>
+    <td width="50%"><img src="docs/images/readme/orca-wbl-transmission-synthetic.png" alt="Synthetic spin-resolved ORCA WBL transmission viewer"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Validated non-spin AITRANSS T(E) presentation</sub></td>
+    <td align="center"><sub>Linker-parameterized ORCA WBL HYPOTHESIS presentation</sub></td>
+  </tr>
+</table>
 
-After a verified optimization with hash-bound `.gbw` evidence, the user may explicitly start an ORCA WBL post-processing stage. Moltage records WBL progress in the second indicator and the originating Geometry workspace, verifies the sibling absolute `orca_2json`, exports MO/basis/overlap evidence from the existing `.gbw`, and performs no new SCF or optimization. Existing linker detection prefills exactly two unambiguous supported contacts; either contact can instead be chosen from numbered atoms in the read-only viewer. The user supplies positive coupling values, while `Same as left` can mirror that user input; Moltage provides no numeric coupling default. Projection and parameter-evidence overrides remain available under Advanced. New dialogs start from an editable, explicitly hypothetical generic Au `E_F = -5.1 eV`, `E-E_F = [-5, 5] eV`, and `0.01 eV` sampling. For verified restricted multiplicity-1 evidence, the result evaluates each spatial MO once and emits only the spin-degenerate total transmission in the conventional `G_0 = 2e^2/h` normalization; it does not duplicate identical Alpha/Beta curves. Verified unrestricted open-shell evidence retains Alpha, Beta, and raw spin-sum outputs with per-spin top-two contributions. CSV/JSON/SVG artifacts and hashes record the selected spin treatment, and logarithmic plot decades use typographic `10ⁿ` labels rather than E notation. Every result remains a linker-parameterized WBL `HYPOTHESIS`, not explicit Au-molecule-Au DFT-NEGF. Completed results open in the dedicated View WBL Transmission workspace from the Calculation menu or the second status indicator. Unsupported basis/spin/overlap evidence fails explicitly rather than falling back to raw coefficient populations. Repository validation remains synthetic and offline and does not claim compatibility with a particular external ORCA/HPC installation.
+The ORCA WBL path reuses an existing verified optimization wavefunction and
+does not run another SCF or geometry optimization. Its coupling parameters are
+explicit user inputs, and its output is always identified as a
+linker-parameterized **HYPOTHESIS**, not an explicit Au–molecule–Au DFT-NEGF
+result.
 
-## Windows distribution
+### Track calculation state
 
-The Windows x64 distribution uses the existing `moltage_gui.py` entry, a
-PyInstaller one-folder application, and a UAC-elevated Inno Setup installer. Build
-dependencies are isolated in `.venv-packaging` and pinned in
-`packaging/requirements-build-lock.txt`, which is authoritative for reproducing
-the release environment. `packaging/requirements-build.txt` lists the direct
-build inputs. Run `packaging/build_windows.ps1` from PowerShell after installing
-the locked dependencies and Inno Setup 6.
+The Project Manager distinguishes queued/running scheduler state, program
+termination and scientific validation. The example below is entirely synthetic.
 
-The generated application is windowed and does not open a console window. The
-installer contains immutable application resources only. Server profiles,
-known projects, known hosts, credentials, and lifecycle logs are created later
-under their existing per-user owners and are neither copied into the installer
-nor removed by uninstall.
+<p align="center">
+  <img src="docs/images/readme/project-manager-synthetic.png" alt="Synthetic Moltage Project Manager overview" width="85%">
+</p>
 
-Official release assets are published through GitHub Releases. Verify the
-adjacent SHA-256 checksum before running the installer. The Windows development
-installer is currently unsigned, so Windows SmartScreen may show an
-unrecognized-publisher warning; a checksum verifies file integrity but is not a
-substitute for a future code-signing certificate.
+## Supported workflows
 
-Runtime discovery is per server profile. It supports bounded terse queries for
-Lmod and Tcl Environment Modules, plus Lmod spider queries for hierarchical
-module trees; all reported modules remain candidates until the exact accepted
-FHI-aims and AITRANSS executable identities are verified.
+| Workflow | Current scope |
+| --- | --- |
+| FHI-aims + AITRANSS | Four managed stages from molecular optimization through non-spin transmission recovery; Slurm and LSF submission are supported. |
+| ORCA | Geometry optimization on Slurm or LSF, optional frequency analysis, and post-optimization linker-parameterized WBL transmission. |
+| Local analysis | Molecular/Cube viewing, electrode preparation and an independent one-orbital tight-binding transmission workspace. |
+| Density difference | Independent remote FHI-aims density-difference task with explicit fragment selection and result recovery. |
 
-## Validation
+Remote workflows currently target Linux/POSIX environments reached from the
+Windows application through a saved SSH server profile. Scheduler settings and
+FHI-aims, AITRANSS and ORCA runtime settings are separated: users configure only
+the programs required by the workflow they intend to run.
 
-From the repository root, install the application and the declared test
-dependency in a clean development environment:
+FHI-aims, AITRANSS and ORCA are **not bundled**. Users must provide properly
+licensed installations and valid access to the selected server.
+
+## Install v0.2.1
+
+The packaged application targets 64-bit Windows.
+
+1. Open the [v0.2.1 release](https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.1).
+2. Download `Moltage-Setup-0.2.1.exe` and its adjacent `.sha256` file.
+3. Verify the installer:
+
+   ```powershell
+   Get-FileHash .\Moltage-Setup-0.2.1.exe -Algorithm SHA256
+   ```
+
+4. Compare the reported hash with the published checksum, then run the
+   installer.
+
+The v0.2.1 development installer is unsigned, so Windows SmartScreen may show
+an unrecognized-publisher warning. The checksum verifies file integrity; it
+does not establish publisher identity.
+
+Moltage can open and inspect supported local files without an HPC account.
+Remote calculations require a configured server profile and the corresponding
+external scientific program.
+
+## First steps
+
+1. Open a supported molecular structure from **File**.
+2. Inspect the inferred or explicit connectivity and identify the two linker
+   sites.
+3. Use the Electrode Builder when contact-Au or canonical electrode geometry is
+   needed.
+4. For remote work, create a server profile and configure only the relevant
+   program page under **Server**.
+5. Start the selected workflow under **Calculation** and monitor it from
+   **Projects**.
+6. Recover validated geometries or results into the tabbed workspace.
+
+Detailed behavior and boundaries are documented in:
+
+- [Project scope](docs/PROJECT_SCOPE.md)
+- [Target workflows](docs/WORKFLOW.md)
+- [Server and program configuration](docs/CONFIGURATION.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Electron-density difference](docs/ELECTRON_DENSITY_DIFFERENCE.md)
+
+## Scientific and validation boundaries
+
+- Moltage does not choose a scientifically correct method, basis, charge,
+  multiplicity, coupling strength or server resource request for the user.
+- WBL and local tight-binding results depend on explicit model assumptions and
+  must not be presented as explicit DFT-NEGF calculations.
+- A scheduler `COMPLETED` state is necessary but not sufficient evidence of
+  program or scientific success.
+- Synthetic offline fixtures verify deterministic application behavior; real
+  HPC/program acceptance remains site specific.
+- FHI-aims species definitions are read from the user's configured server and
+  are not distributed with Moltage.
+
+## Development
+
+Moltage requires Python 3.11 or later for source development.
 
 ```powershell
 py -m pip install -e ".[test]"
-```
-
-The documented default suite is `tests/unit`. It uses synthetic fixtures and
-injected fake or in-memory boundaries; it does not require a configured SSH/HPC
-server, scheduler account, FHI-aims, AITRANSS, species definitions, saved
-credentials, or normal Moltage application state. The test process rejects
-unmocked access through the production network, SSH, and native credential
-boundaries and redirects application data to temporary test-owned storage.
-
-Use focused validation after a small, locally owned change. The test paths are
-explicit so the runner never guesses dependency impact or silently skips a
-relevant test:
-
-```powershell
-.\tools\run_tests.ps1 -Tests tests\unit\test_orbital_cube.py,tests\unit\test_project_orbital_cube.py
-```
-
-For a completed feature, run its subsystem and direct integration tests with
-explicit `-Tests` paths. Run the complete offline suite only for schema/persistence,
-scientific behavior, high-risk scheduler/security/cross-layer architecture
-changes, or a formal pre-commit snapshot; it is not the default for every change:
-
-```powershell
 .\tools\run_tests.ps1 -Full
 ```
 
-The scoped OpenSpec validation and audit policy is in `AGENTS.md` and
-[`docs/MAINTENANCE.md`](docs/MAINTENANCE.md). Full pre-public audits are separate
-from the ordinary feature loop.
-
-Both modes first compile the source and use the Windows software OpenGL path.
-VTK GUI tests should not be forced through Qt's offscreen platform plugin,
-which is not equivalent to the supported Windows desktop runtime.
-
-Passing this synthetic offline suite validates project behavior only within its
-documented test boundary. It is not evidence that a real SSH/HPC site,
-scheduler configuration, FHI-aims or AITRANSS installation, MPI environment, or
-scientific calculation has been accepted. Any such validation is a separate,
-explicitly authorized operation and is never started by the default test
-command.
+Focused tests are preferred for small changes. The full offline suite is used
+for scientific behavior, schema/persistence, scheduler/security or other
+cross-layer changes, and for formal release checkpoints. See
+[maintenance guidance](docs/MAINTENANCE.md) and
+[release guidance](docs/RELEASING.md).
 
 ## License and third-party software
 
@@ -145,14 +212,8 @@ Moltage is free software distributed under the
 [GNU General Public License version 3 only](LICENSE). The Windows distribution
 uses the GPLv3 option for Qt/PySide and Qt Charts. Third-party components retain
 their own copyrights and license terms; see
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`LICENSES/`](LICENSES/).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LICENSES/](LICENSES/).
 
-Each binary release must publish the exact Moltage source and the corresponding
-third-party source bundle identified by
-[`packaging/third_party_sources.toml`](packaging/third_party_sources.toml) at the
-same GitHub Release. An upstream hyperlink alone is not used as a substitute for
-those release assets. FHI-aims, AITRANSS, and ORCA are user-supplied external
-programs and are not included in Moltage.
-
-Security issues should be reported privately as described in
-[`SECURITY.md`](SECURITY.md).
+Binary releases publish the corresponding Moltage source and third-party source
+bundle alongside the installer. Security issues should be reported privately as
+described in [SECURITY.md](SECURITY.md).
