@@ -1,25 +1,38 @@
+# Exact v0.2.1 packaging environment. Matplotlib and its dependency chain are
+# installed transitively with VTK but are not collected into the Moltage
+# Windows distribution; they remain pinned here for build reproducibility.
 altgraph==0.17.5
 bcrypt==5.0.0
 cffi==2.1.1
+contourpy==1.4.0
 cryptography==50.0.1
+cycler==0.12.1
+fonttools==4.65.0
 invoke==3.0.3
 jaraco.classes==3.4.0
 jaraco.context==6.1.2
 jaraco.functools==4.6.0
 keyring==25.7.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
 more-itertools==11.1.0
 numpy==2.5.3
 packaging==26.3
 paramiko==5.0.0
 pefile==2024.8.26
+pillow==12.3.0
+pip==24.3.1
 pycparser==3.0
 pyinstaller==6.22.2
 pyinstaller-hooks-contrib==2026.7
 PyNaCl==1.6.2
+pyparsing==3.3.2
 PySide6==6.11.2
 PySide6_Addons==6.11.2
 PySide6_Essentials==6.11.2
+python-dateutil==2.9.0.post0
 pywin32-ctypes==0.2.3
 setuptools==84.0.0
 shiboken6==6.11.2
+six==1.17.0
 vtk==9.7.0

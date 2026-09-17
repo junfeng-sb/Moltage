@@ -215,6 +215,8 @@ class WindowsPackagingTests(unittest.TestCase):
             "numpy==2.5.3",
             "paramiko==5.0.0",
             "cryptography==50.0.1",
+            "matplotlib==3.11.2",
+            "pillow==12.3.0",
         ):
             self.assertIn(required, lock)
 

@@ -2,9 +2,10 @@
 version = "0.2.1"
 bundle_name = "Moltage-0.2.1-third-party-source.zip"
 
-# These archives are the corresponding and rebuild sources for the exact
-# components used by the Windows v0.2.1 build. Release automation verifies every
-# SHA-256 value before an asset can enter the bundle.
+# These archives cover components present in the Windows distribution and its
+# PyInstaller packaging toolchain. Build-environment-only transitive packages
+# are pinned separately in requirements-build-lock.txt. Release automation
+# verifies every SHA-256 value before an asset can enter the bundle.
 
 [[source]]
 name = "CPython"
