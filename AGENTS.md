@@ -26,3 +26,7 @@ Do not add silent fallbacks, speculative features, generic plugin frameworks, go
 - Run `openspec validate <change> --strict` once when the proposal is complete, once when apply is complete, and once before archive. Reuse existing validation evidence when the artifacts have not changed; do not rerun it merely because another command or test completed.
 - Full privacy, provenance, secret, AI-attribution, and repository-hierarchy audits belong to pre-public validation, not the ordinary feature loop. This does not permit introducing secrets or unverified scientific resources during development.
 - Report only validation actually performed; mark unavailable required validation as unverified with its reason. Offline tests do not establish acceptance on a real HPC environment. Keep changes and tests scoped; do not build a new testing framework or hide warnings to achieve a pass.
+
+## Bilingual user manual
+
+- The English manual under `docs/user_manual/` and the Simplified Chinese manual under `docs/user_manual_zh/` describe the same released behavior. Any user-manual content change must update both versions in the same task, then rebuild and visually verify both PDFs.

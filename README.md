@@ -14,6 +14,8 @@
 
 <p align="center">
   <a href="https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.1">Download v0.2.1</a>
+  · <a href="docs/user_manual/README.md">User Manual</a>
+  · <a href="docs/user_manual_zh/README.md">中文手册</a>
   · <a href="docs/WORKFLOW.md">Workflows</a>
   · <a href="docs/CONFIGURATION.md">Configuration</a>
   · <a href="LICENSE">GPL-3.0-only</a>
@@ -170,6 +172,8 @@ external scientific program.
 
 Detailed behavior and boundaries are documented in:
 
+- [User manual](docs/user_manual/README.md)
+- [中文用户手册](docs/user_manual_zh/README.md)
 - [Project scope](docs/PROJECT_SCOPE.md)
 - [Target workflows](docs/WORKFLOW.md)
 - [Server and program configuration](docs/CONFIGURATION.md)
