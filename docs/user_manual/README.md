@@ -1,6 +1,6 @@
-# Moltage v0.2.1 User Manual
+# Moltage v0.2.2 User Manual
 
-This manual describes Moltage v0.2.1 from a user's point of view. It explains
+This manual describes Moltage v0.2.2 from a user's point of view. It explains
 where each command is located, what it changes, which settings are required,
 and how to distinguish a local display operation from a remote calculation or
 destructive project action.
@@ -60,7 +60,7 @@ an external program.
 
 ## Version scope
 
-This manual is versioned for **Moltage v0.2.1**. Later releases may add or move
+This manual is versioned for **Moltage v0.2.2**. Later releases may add or move
 controls. Use the upper-right **Update Log** button inside Moltage to check the
 installed version's bundled change summary.
 

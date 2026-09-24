@@ -139,6 +139,7 @@ from moltage.app.project_submission import (
     TransportConvergenceSubmissionRequest,
     record_submission_lifecycle_event,
 )
+from moltage.app.orca_import import OrcaOptimizationImportService
 from moltage.app.orca_recovery import OrcaRecoveryService
 from moltage.app.orca_wbl import OrcaWblService
 from moltage.app.orca_submission import (
@@ -185,6 +186,7 @@ from moltage.domain.calculation_project import (
     CalculationWorkflowKind,
     ProjectStepKind,
     ProjectStepState,
+    orca_wbl_stage_blocks_new_run,
 )
 from moltage.domain.connectivity import Connectivity
 from moltage.domain.electrode import (
@@ -229,6 +231,9 @@ from moltage.gui.project_submission import (
     step_label,
 )
 from moltage.gui.input_export import AimsInputExportWorker
+from moltage.gui.orca_import_dialog import (
+    ImportExistingOrcaOptimizationDialog,
+)
 from moltage.gui.project_orbital_cube import ProjectOrbitalCubeWorker
 from moltage.gui.projects_dialog import (
     CalculationProjectsDialog,
@@ -475,6 +480,7 @@ class _ProjectSubmissionDependencies:
     orca_submission_service: OrcaSubmissionService | None = None
     orca_recovery_service: OrcaRecoveryService | None = None
     orca_wbl_service: OrcaWblService | None = None
+    orca_import_service: OrcaOptimizationImportService | None = None
 
 
 @dataclass(slots=True)
@@ -743,7 +749,11 @@ class MoleculeViewerDemo(QMainWindow):
         self._transport_origin_workspace_id: UUID | None = None
         self._projects_dialog: CalculationProjectsDialog | None = None
         self._projects_profile_repository: ServerProfileRepository | None = None
-        self._connectivity_multiplier = DEFAULT_CONNECTIVITY_MULTIPLIER
+        self._connectivity_multiplier = (
+            user_view_preferences_repository.load_bond_threshold_factor()
+            if user_view_preferences_repository is not None
+            else DEFAULT_CONNECTIVITY_MULTIPLIER
+        )
         self._view_preferences = ViewPreferences()
         self._workspaces_by_widget: dict[QWidget, _Workspace] = {}
         self._geometry_workspaces_by_identity: dict[
@@ -2359,6 +2369,23 @@ class MoleculeViewerDemo(QMainWindow):
         self._projects_action.setToolTip("Project Manager...")
         self._projects_action.triggered.connect(self._open_projects)
         self._projects_menu.addAction(self._projects_action)
+        self._projects_menu.addSeparator()
+        self._import_calculation_menu = self._projects_menu.addMenu(
+            "Import Existing Calculation..."
+        )
+        self._import_calculation_menu.setObjectName("importExistingCalculationMenu")
+        self._import_orca_optimization_action = (
+            self._import_calculation_menu.addAction("ORCA Optimization...")
+        )
+        self._import_orca_optimization_action.setObjectName(
+            "importExistingOrcaOptimization"
+        )
+        self._import_orca_optimization_action.setToolTip(
+            "Import Existing ORCA Optimization"
+        )
+        self._import_orca_optimization_action.triggered.connect(
+            self._import_existing_orca_optimization
+        )
 
         self._calculation_menu = menu_bar.addMenu("Calculation")
         self._calculation_menu.setObjectName("calculationMenu")
@@ -2790,7 +2817,7 @@ class MoleculeViewerDemo(QMainWindow):
         QMessageBox.about(
             self,
             "About Moltage",
-            "<b>Moltage 0.2.1</b><br>"
+            "<b>Moltage 0.2.2</b><br>"
             "Single-Molecule Quantum Transport &amp; Analysis Workbench"
             "<br><br>Copyright &copy; 2026 Junfeng Lin."
             "<br>Licensed under GNU GPL version 3 only."
@@ -4388,6 +4415,14 @@ class MoleculeViewerDemo(QMainWindow):
             selected_factor,
             snapshots,
         )
+        repository = self._user_view_preferences_repository
+        if repository is not None:
+            try:
+                repository.save_bond_threshold_factor(selected_factor)
+            except UserViewPreferencesError as error:
+                self._restore_inferred_connectivity_preview(committed_factor, snapshots)
+                QMessageBox.critical(self, "Unable to save Bond Detection settings", str(error))
+                return
         self._finalize_inferred_connectivity_preview(snapshots)
         active = self._active_geometry_workspace()
         if active is not None:
@@ -4722,6 +4757,69 @@ class MoleculeViewerDemo(QMainWindow):
             )
         )
 
+    @Slot()
+    def _import_existing_orca_optimization(self) -> None:
+        """Register one completed external ORCA optimization as a project.
+
+        The entry stays available without a loaded molecule, so it builds its
+        own local dependencies instead of relying on viewer or Project Manager
+        state.
+        """
+
+        try:
+            dependencies = _create_project_submission_dependencies()
+            collection = dependencies.profile_repository.load()
+        except Exception as error:
+            self._show_local_submission_error(
+                "Unable to prepare the ORCA optimization import",
+                error,
+            )
+            return
+        if dependencies.orca_import_service is None or dependencies.connection_service is None:
+            self._show_local_submission_error(
+                "Unable to prepare the ORCA optimization import",
+                RuntimeError("the ORCA import service is unavailable"),
+            )
+            return
+        if not collection.profiles:
+            answer = QMessageBox.question(
+                self,
+                "No server configured",
+                "Importing an existing ORCA optimization requires a configured "
+                "server. Open Server Connections now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._open_server_profiles()
+            return
+        dialog = ImportExistingOrcaOptimizationDialog(
+            collection.profiles,
+            collection.last_selected_profile_id,
+            dependencies.orca_import_service,
+            dependencies.connection_service,
+            dependencies.secret_store,
+            self,
+        )
+        dialog.server_settings_requested.connect(self._open_server_profiles)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        result = dialog.imported_project
+        if result is None:
+            return
+        try:
+            dependencies.profile_repository.set_last_selected(
+                result.project.server_profile_id
+            )
+        except Exception:
+            # Remembering the last profile is a convenience; the managed
+            # project is already registered on the server.
+            pass
+        self._set_operation(
+            "Imported ORCA optimization as "
+            f"{result.remote_project_path}. Open Project Manager to run "
+            "Step 2 - WBL Transmission."
+        )
+
     def _open_projects(self) -> None:
         if self._projects_dialog is not None:
             self._show_projects_dialog()
@@ -4803,6 +4901,7 @@ class MoleculeViewerDemo(QMainWindow):
         dialog.orca_optimization_resubmit_requested.connect(
             self._resubmit_orca_optimization
         )
+        dialog.orca_wbl_resubmit_requested.connect(self._resubmit_orca_wbl)
         self._projects_dialog = dialog
         self._projects_profile_repository = dependencies.profile_repository
         self._show_projects_dialog()
@@ -4822,6 +4921,7 @@ class MoleculeViewerDemo(QMainWindow):
         dialog.calculate_orca_wbl(
             snapshot,
             profile,
+            connectivity_multiplier=self._connectivity_multiplier,
             contact_atom_selector=self._select_orca_wbl_contact_atom,
         )
 
@@ -4909,6 +5009,37 @@ class MoleculeViewerDemo(QMainWindow):
         if snapshot is None or profile is None:
             return
         self._resubmit_orca_optimization((snapshot, profile, workspace.structure))
+
+    @Slot(object)
+    def _resubmit_orca_wbl(self, request_data: object) -> None:
+        """Rerun a finished Step 2 in its own project, reusing the optimization."""
+
+        dialog = self._projects_dialog
+        try:
+            snapshot, profile = request_data
+            if not isinstance(snapshot, ProjectRecoverySnapshot):
+                raise TypeError("ORCA Step 2 resubmission snapshot is invalid")
+            if not isinstance(profile, ServerProfile):
+                raise TypeError("ORCA Step 2 resubmission server profile is invalid")
+            if dialog is None:
+                raise RuntimeError("the project manager is unavailable")
+            # Step 2 runs from the project's geometry, exactly as from the
+            # Calculation menu: the viewer shows the bonds it interprets and
+            # can pick contact atoms.
+            self._open_recovered_geometry(snapshot, profile)
+        except Exception as error:
+            self._show_local_submission_error(
+                "ORCA Step 2 resubmission unavailable",
+                error,
+            )
+            return
+        dialog.hide()
+        dialog.calculate_orca_wbl(
+            snapshot,
+            profile,
+            connectivity_multiplier=self._connectivity_multiplier,
+            contact_atom_selector=self._select_orca_wbl_contact_atom,
+        )
 
     @Slot(object)
     def _resubmit_orca_optimization(self, request_data: object) -> None:
@@ -6010,6 +6141,11 @@ class MoleculeViewerDemo(QMainWindow):
         except Exception as error:
             QMessageBox.critical(self, "ORCA WBL view failed", str(error))
             return None
+        # A rerun replaces the project's result, not a comparison dataset.
+        # Retire any prior chart only after the replacement view is constructed.
+        for identity, previous in tuple(self._orca_wbl_workspaces_by_identity.items()):
+            if identity.project_id == request.identity.project_id:
+                self._close_workspace_tab(self._workspace_tabs.indexOf(previous.content))
         workspace = _OrcaWblWorkspace(
             runtime_id=uuid4(),
             identity=request.identity,
@@ -8750,17 +8886,21 @@ class MoleculeViewerDemo(QMainWindow):
             )
             return
 
-        try:
-            recommendation = recommend_start_step(
-                self._structure,
-                self._anchors,
-            )
-        except Exception as error:
-            self._show_local_submission_error(
-                "Unable to plan calculation project",
-                error,
-            )
-            return
+        # ORCA molecular optimization consumes the loaded structure directly,
+        # so it neither runs nor depends on FHI-aims contact-Au start planning.
+        recommendation = None
+        if preselected_engine is not CalculationWorkflowKind.ORCA:
+            try:
+                recommendation = recommend_start_step(
+                    self._structure,
+                    self._anchors,
+                )
+            except Exception as error:
+                self._show_local_submission_error(
+                    "Unable to plan calculation project",
+                    error,
+                )
+                return
 
         default_base_name = (
             self._source_path.stem if self._source_path is not None else ""
@@ -9654,10 +9794,7 @@ def _orca_wbl_calculation_eligible(
         and optimization.orca_optimization_result is not None
         and optimization.orca_optimization_result.wbl_input_ready
         and optimization.orca_optimization_result.gbw_sha256 is not None
-        and not any(
-            step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION
-            for step in snapshot.project.steps
-        )
+        and not orca_wbl_stage_blocks_new_run(snapshot.project)
     )
 
 
@@ -9780,6 +9917,10 @@ def _create_project_submission_dependencies() -> _ProjectSubmissionDependencies:
         connection_service,
         local_index_repository,
     )
+    orca_import_service = OrcaOptimizationImportService(
+        connection_service,
+        local_index_repository,
+    )
     return _ProjectSubmissionDependencies(
         profile_repository,
         profile_service,
@@ -9797,6 +9938,7 @@ def _create_project_submission_dependencies() -> _ProjectSubmissionDependencies:
         orca_submission_service,
         orca_recovery_service,
         orca_wbl_service,
+        orca_import_service,
     )
 
 

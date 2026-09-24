@@ -108,7 +108,7 @@ if (-not $ResolvedIsccPath -or
 
 New-Item -ItemType Directory -Path $InstallerDistRoot -Force | Out-Null
 
-$InstallerPath = Join-Path $InstallerDistRoot "Moltage-Setup-0.2.1.exe"
+$InstallerPath = Join-Path $InstallerDistRoot "Moltage-Setup-0.2.2.exe"
 if (Test-Path -LiteralPath $InstallerPath) {
     throw "Refusing to overwrite an existing release artifact: $InstallerPath"
 }

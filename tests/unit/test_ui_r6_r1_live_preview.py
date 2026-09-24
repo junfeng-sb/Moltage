@@ -9,6 +9,10 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QDialog, QDoubleSpinBox
 
 from moltage.aims.geometry_writer import render_geometry_in
+from moltage.app.user_view_preferences import (
+    UserViewPreferencesError,
+    UserViewPreferencesRepository,
+)
 from moltage.domain.bond_display import ConnectivitySource
 from moltage.gui.bond_detection_dialog import BondDetectionDialog
 from moltage.gui.view_settings_dialog import ViewSettingsDialog
@@ -473,6 +477,62 @@ class UiR6R1MainWindowTests(unittest.TestCase):
         self.assertEqual(len(workspace.connectivity), 1)
         self.assertIs(workspace.structure, structure)
         self.assertEqual(render_geometry_in(workspace.structure), geometry)
+
+    def test_accepted_bond_factor_survives_restart_and_drives_new_connectivity(self):
+        repository = UserViewPreferencesRepository(self.root / "view_preferences.json")
+        self.window._user_view_preferences_repository = repository
+        xyz = self._threshold_xyz()
+        self.window._open_local_geometry(xyz)
+        driven = _bond_dialog_driver(
+            (1.20,), QDialog.DialogCode.Accepted, lambda *_args: None,
+        )
+        with patch("tools.molecule_viewer_demo.BondDetectionDialog", driven):
+            self.window._open_bond_detection()
+        self.assertEqual(repository.load_bond_threshold_factor(), 1.20)
+        restarted = MoleculeViewerDemo(repository)
+        try:
+            self.assertEqual(restarted._connectivity_multiplier, 1.20)
+            workspace = restarted._open_local_geometry(xyz)
+            self.assertEqual(len(workspace.connectivity), 1)
+        finally:
+            restarted.close()
+            restarted.deleteLater()
+
+    def test_cancel_bond_preview_preserves_saved_factor_and_graph(self):
+        repository = UserViewPreferencesRepository(self.root / "view_preferences.json")
+        repository.save_bond_threshold_factor(1.10)
+        self.window._user_view_preferences_repository = repository
+        workspace = self.window._open_local_geometry(self._threshold_xyz())
+        graph = workspace.connectivity
+        before = repository.path.read_bytes()
+        driven = _bond_dialog_driver(
+            (1.20,), QDialog.DialogCode.Rejected, lambda *_args: None,
+        )
+        with patch("tools.molecule_viewer_demo.BondDetectionDialog", driven):
+            self.window._open_bond_detection()
+        self.assertEqual(repository.path.read_bytes(), before)
+        self.assertEqual(self.window._connectivity_multiplier, 1.10)
+        self.assertIs(workspace.connectivity, graph)
+
+    def test_bond_preference_save_failure_restores_prior_factor_and_graph(self):
+        repository = UserViewPreferencesRepository(self.root / "view_preferences.json")
+        repository.save_bond_threshold_factor(1.10)
+        self.window._user_view_preferences_repository = repository
+        workspace = self.window._open_local_geometry(self._threshold_xyz())
+        graph = workspace.connectivity
+        driven = _bond_dialog_driver(
+            (1.20,), QDialog.DialogCode.Accepted, lambda *_args: None,
+        )
+        with (
+            patch("tools.molecule_viewer_demo.BondDetectionDialog", driven),
+            patch.object(repository, "save_bond_threshold_factor", side_effect=UserViewPreferencesError("synthetic failure")),
+            patch("tools.molecule_viewer_demo.QMessageBox.critical") as error,
+        ):
+            self.window._open_bond_detection()
+        self.assertEqual(self.window._connectivity_multiplier, 1.10)
+        self.assertIs(workspace.connectivity, graph)
+        self.assertEqual(repository.load_bond_threshold_factor(), 1.10)
+        error.assert_called_once()
 
     def test_bond_preview_propagates_to_every_inferred_geometry_tab(self) -> None:
         workspace_a = self.window._open_local_geometry(

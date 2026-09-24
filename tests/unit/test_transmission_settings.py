@@ -33,8 +33,8 @@ class TransmissionSettingsTests(unittest.TestCase):
 
         self.assertEqual(dialog.tabs.currentIndex(), 3)
         self.assertIsNotNone(selected)
-        self.assertEqual(selected.curve.width, 4.0)
-        self.assertEqual(selected.curve.line_style, PlotLineStyle.DOT)
+        self.assertEqual(selected.curves[0].width, 4.0)
+        self.assertEqual(selected.curves[0].line_style, PlotLineStyle.DOT)
         self.assertEqual(selected.canvas.export_width, 1600)
         self.assertEqual(selected.canvas.export_height, 900)
         dialog.deleteLater()
@@ -147,12 +147,14 @@ def _settings() -> TransmissionVisualSettings:
             x_minor_tick_count=1,
             y_minor_tick_count=8,
         ),
-        curve=CurveVisualSettings(
-            "#2080c0",
-            2.0,
-            PlotLineStyle.SOLID,
-            False,
-            "T(E)",
+        curves=(
+            CurveVisualSettings(
+                "#2080c0",
+                2.0,
+                PlotLineStyle.SOLID,
+                False,
+                "T(E)",
+            ),
         ),
         canvas=CanvasVisualSettings(
             1200,

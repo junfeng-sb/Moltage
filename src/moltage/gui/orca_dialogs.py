@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -33,7 +34,11 @@ from moltage.app.orca_submission import (
 )
 from moltage.app.orca_wbl import OrcaWblRequest, OrcaWblService
 from moltage.domain.scheduler import scheduler_display_name
-from moltage.domain.server_profile import ServerProfile
+from moltage.domain.server_profile import (
+    ServerProfile,
+    runtime_hours_from_minutes,
+    runtime_minutes_from_hours,
+)
 from moltage.domain.connectivity import Connectivity
 from moltage.domain.structure import MolecularStructure
 from moltage.orca.batch import orca_memory_advisory
@@ -61,10 +66,17 @@ from moltage.orca.wbl import (
     WblContactSubspaceMode,
     WblLinkerKind,
     WblParameterStatus,
+    contact_element_for_linker,
     detect_wbl_contacts,
+    manual_contact_direction,
     resolve_automatic_contact_subspace,
+    resolve_contact_projection_geometry,
 )
 from moltage.orca.wbl_defaults import load_default_wbl_ui_defaults
+from moltage.gui.bond_detection_dialog import (
+    MAXIMUM_BOND_THRESHOLD_FACTOR,
+    MINIMUM_BOND_THRESHOLD_FACTOR,
+)
 
 
 def _enum_combo(parent: QWidget, name: str, values) -> QComboBox:
@@ -86,6 +98,23 @@ def _resource_spin(
     spin.setObjectName(name)
     spin.setRange(1, maximum)
     spin.setValue(value)
+    return spin
+
+
+def _runtime_hours_spin(parent: QWidget, name: str, runtime_minutes: int) -> QDoubleSpinBox:
+    """Enter the scheduler time limit in hours; minutes stay internal.
+
+    Two decimals keep every whole-minute value lossless on the way through
+    hours and back, so preloaded settings are never silently changed.
+    """
+
+    spin = QDoubleSpinBox(parent)
+    spin.setObjectName(name)
+    spin.setRange(0.02, 1_000_000.0)
+    spin.setDecimals(2)
+    spin.setSingleStep(0.5)
+    spin.setSuffix(" h")
+    spin.setValue(runtime_hours_from_minutes(runtime_minutes))
     return spin
 
 
@@ -188,8 +217,8 @@ class OrcaOptimizationSettingsDialog(QDialog):
         self._processes = _resource_spin(
             self, "orcaOptimizationProcesses", preset.ntasks
         )
-        self._runtime = _resource_spin(
-            self, "orcaOptimizationRuntimeMinutes", preset.runtime_minutes
+        self._runtime = _runtime_hours_spin(
+            self, "orcaOptimizationRuntimeHours", preset.runtime_minutes
         )
         self._memory = _resource_spin(
             self, "orcaOptimizationSchedulerMemoryGb", preset.memory_gb
@@ -205,7 +234,7 @@ class OrcaOptimizationSettingsDialog(QDialog):
         max_core_layout.addWidget(self._max_core)
         resource_form.addRow("Nodes:", self._nodes)
         resource_form.addRow("ORCA processes:", self._processes)
-        resource_form.addRow("Maximum runtime (minutes):", self._runtime)
+        resource_form.addRow("Maximum runtime:", self._runtime)
         resource_form.addRow("Scheduler memory (GB):", self._memory)
         resource_form.addRow("ORCA memory per process (MB):", max_core_row)
         self._memory_note = QLabel(self)
@@ -271,7 +300,7 @@ class OrcaOptimizationSettingsDialog(QDialog):
         self._multiplicity.setValue(settings.multiplicity)
         self._nodes.setValue(settings.scheduler_nodes)
         self._processes.setValue(settings.process_count)
-        self._runtime.setValue(settings.runtime_minutes)
+        self._runtime.setValue(runtime_hours_from_minutes(settings.runtime_minutes))
         self._memory.setValue(settings.scheduler_memory_gb)
         self._use_max_core.setChecked(settings.max_core_mb is not None)
         if settings.max_core_mb is not None:
@@ -298,7 +327,7 @@ class OrcaOptimizationSettingsDialog(QDialog):
             ),
             version_family=self._profile.orca_runtime.version_evidence.version_family,
             scheduler_nodes=self._nodes.value(),
-            runtime_minutes=self._runtime.value(),
+            runtime_minutes=runtime_minutes_from_hours(self._runtime.value()),
             scheduler_memory_gb=self._memory.value(),
         )
 
@@ -399,8 +428,8 @@ class OrcaFrequencySettingsDialog(QDialog):
         self._mode.addItem("NUMFREQ — numerical Hessian", OrcaFrequencyMode.NUMFREQ)
         self._nodes = _resource_spin(self, "orcaFrequencyNodes", preset.nodes)
         self._processes = _resource_spin(self, "orcaFrequencyProcesses", preset.ntasks)
-        self._runtime = _resource_spin(
-            self, "orcaFrequencyRuntimeMinutes", preset.runtime_minutes
+        self._runtime = _runtime_hours_spin(
+            self, "orcaFrequencyRuntimeHours", preset.runtime_minutes
         )
         self._memory = _resource_spin(
             self, "orcaFrequencySchedulerMemoryGb", preset.memory_gb
@@ -413,7 +442,7 @@ class OrcaFrequencySettingsDialog(QDialog):
         form.addRow("Mode:", self._mode)
         form.addRow("Nodes:", self._nodes)
         form.addRow("ORCA processes:", self._processes)
-        form.addRow("Maximum runtime (minutes):", self._runtime)
+        form.addRow("Maximum runtime:", self._runtime)
         form.addRow("Scheduler memory (GB):", self._memory)
         form.addRow("ORCA memory per process (MB):", self._max_core)
         form.addRow("", self._use_max_core)
@@ -466,7 +495,7 @@ class OrcaFrequencySettingsDialog(QDialog):
                     self._max_core.value() if self._use_max_core.isChecked() else None
                 ),
                 scheduler_nodes=self._nodes.value(),
-                runtime_minutes=self._runtime.value(),
+                runtime_minutes=runtime_minutes_from_hours(self._runtime.value()),
                 scheduler_memory_gb=self._memory.value(),
             )
         except OrcaSettingsError as error:
@@ -484,6 +513,7 @@ class _WblContactControls:
     status: QComboBox
     subspace: QComboBox
     manual_direction: QLineEdit
+    direction_from_atom: QPushButton
     manual_aos: QLineEdit
     advanced: QGroupBox
     last_atom_index: int | None = None
@@ -524,7 +554,13 @@ class _RequiredPositiveEvSpinBox(_CompactDoubleSpinBox):
 
 _MANUAL_CONTACT_SELECTION = "MANUAL_SELECT_IN_VIEWER"
 
+# An unselected contact is an empty form, not a contact Moltage cannot project.
+_CONTACT_ATOM_NOT_SELECTED = "select a contact atom"
+
 _SUBSPACE_LABELS = {
+    WblContactSubspaceMode.S_ALL_P_LEGACY: (
+        "S all p orbitals — legacy NCS comparison (no direction)"
+    ),
     WblContactSubspaceMode.S_3P_DIRECTIONAL: (
         "S valence 3p — along the contact direction"
     ),
@@ -547,26 +583,47 @@ class OrcaWblSettingsDialog(QDialog):
         connectivity: Connectivity,
         parent: QWidget | None = None,
         *,
+        connectivity_multiplier: float,
         contact_atom_selector: Callable[[str], int | None] | None = None,
+        initial_settings: OrcaWblSettings | None = None,
+        replacing_result: bool = False,
     ) -> None:
         super().__init__(parent)
         if not isinstance(structure, MolecularStructure) or not structure:
             raise ValueError("ORCA WBL requires a verified optimized structure")
+        if initial_settings is not None and not isinstance(
+            initial_settings, OrcaWblSettings
+        ):
+            raise TypeError("previous ORCA WBL settings are invalid")
         if not isinstance(connectivity, Connectivity):
             raise TypeError("ORCA WBL requires verified molecular connectivity")
         if connectivity.atom_count != len(structure):
             raise ValueError("ORCA WBL connectivity does not match the structure")
+        if (
+            isinstance(connectivity_multiplier, bool)
+            or not isinstance(connectivity_multiplier, (int, float))
+            or not (
+                MINIMUM_BOND_THRESHOLD_FACTOR
+                <= float(connectivity_multiplier)
+                <= MAXIMUM_BOND_THRESHOLD_FACTOR
+            )
+        ):
+            raise ValueError(
+                "ORCA WBL requires the bond threshold factor of the shown bonds"
+            )
         if sum(atom.element in {"S", "N"} for atom in structure) < 2:
             raise ValueError(
                 "ORCA WBL requires at least two selectable S/N contact atoms"
             )
         self._structure = structure
         self._connectivity = connectivity
+        self._connectivity_multiplier = float(connectivity_multiplier)
         self._contact_atom_selector = contact_atom_selector
         self._detected_linkers_by_atom = self._detected_linker_map()
         self._defaults = load_default_wbl_ui_defaults()
         self._settings: OrcaWblSettings | None = None
         self._collapsed_size: QSize | None = None
+        self._advanced_revealed = False
         self.setWindowTitle("ORCA Wide-Band-Limit Transmission")
         self.setMinimumWidth(960)
         layout = QVBoxLayout(self)
@@ -584,6 +641,23 @@ class OrcaWblSettingsDialog(QDialog):
         guidance.setObjectName("orcaWblGuidance")
         guidance.setWordWrap(True)
         layout.addWidget(guidance)
+
+        if replacing_result:
+            notice = QLabel(
+                "Recalculate Step 2 with the settings below. A successful run "
+                "replaces this project's previous WBL parameters and results; "
+                "if recalculation fails, the previous result is kept. "
+                "The ORCA optimization files are unchanged.",
+                self,
+            )
+            notice.setObjectName("orcaWblReplacementNotice")
+            notice.setWordWrap(True)
+            layout.addWidget(notice)
+
+        self._detection_summary = QLabel(self._detection_summary_text(), self)
+        self._detection_summary.setObjectName("orcaWblDetectionSummary")
+        self._detection_summary.setWordWrap(True)
+        layout.addWidget(self._detection_summary)
 
         contacts = QWidget(self)
         contacts_layout = QHBoxLayout(contacts)
@@ -660,20 +734,86 @@ class OrcaWblSettingsDialog(QDialog):
             | QDialogButtonBox.StandardButton.Cancel,
             parent=self,
         )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Start Step 2")
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
+            "Recalculate Step 2" if replacing_result else "Start Step 2"
+        )
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        if initial_settings is not None:
+            self._apply_initial_settings(initial_settings)
         self._left.gamma0.valueChanged.connect(self._update_required_input_message)
         self._right.gamma0.valueChanged.connect(self._update_required_input_message)
         self._same_gamma.toggled.connect(self._update_required_input_message)
+        for controls in (self._left, self._right):
+            for editor in (controls.atom, controls.linker, controls.subspace):
+                editor.currentIndexChanged.connect(
+                    self._update_required_input_message
+                )
+            for text_editor in (controls.manual_direction, controls.manual_aos):
+                text_editor.textChanged.connect(self._update_required_input_message)
+        self._advanced_toggled(self._advanced_button.isChecked())
         self._update_required_input_message()
-        self._advanced_toggled(False)
 
     def selected_settings(self) -> OrcaWblSettings:
         if self._settings is None:
             raise RuntimeError("ORCA WBL settings were not confirmed")
         return self._settings
+
+    def _apply_initial_settings(self, settings: OrcaWblSettings) -> None:
+        """Start a resubmission from the settings of the previous Step 2 run."""
+
+        advanced_used = False
+        for controls, contact in (
+            (self._left, settings.left),
+            (self._right, settings.right),
+        ):
+            index = controls.atom.findData(contact.atom_index)
+            if index < 0:
+                raise ValueError(
+                    f"previous Step 2 contact atom {contact.atom_index + 1} is "
+                    "not a selectable S/N atom of this structure"
+                )
+            controls.atom.setCurrentIndex(index)
+            controls.linker.setCurrentIndex(controls.linker.findData(contact.linker))
+            controls.status.setCurrentIndex(
+                controls.status.findData(contact.parameter_status)
+            )
+            controls.subspace.setCurrentIndex(
+                controls.subspace.findData(contact.subspace_mode)
+            )
+            controls.manual_direction.setText(
+                ""
+                if contact.manual_direction is None
+                else ", ".join(format(value, ".10g") for value in contact.manual_direction)
+            )
+            controls.manual_aos.setText(
+                ", ".join(str(index + 1) for index in contact.manual_ao_indices)
+            )
+            advanced_used = advanced_used or (
+                contact.linker is not controls.detected_linker
+                or contact.parameter_status is WblParameterStatus.CALIBRATED
+                or contact.subspace_mode is not WblContactSubspaceMode.AUTO
+                or contact.manual_direction is not None
+            )
+        left_gamma = settings.left.gamma0_ev or 0.0
+        right_gamma = settings.right.gamma0_ev or 0.0
+        self._left.gamma0.setValue(left_gamma)
+        self._same_gamma.setChecked(left_gamma == right_gamma)
+        if left_gamma != right_gamma:
+            self._right.gamma0.setValue(right_gamma)
+        self._fermi.setValue(settings.fermi_energy_ev)
+        self._energy_min.setValue(settings.energy_min_relative_ev)
+        self._energy_max.setValue(settings.energy_max_relative_ev)
+        self._energy_step.setValue(settings.energy_step_ev)
+        if settings.connectivity_multiplier != self._connectivity_multiplier:
+            self._detection_summary.setText(
+                self._detection_summary_text()
+                + " The previous Step 2 run used factor "
+                f"{settings.connectivity_multiplier:.2f}."
+            )
+        if advanced_used:
+            self._reveal_manual_contact_controls()
 
     def _contact_group(
         self,
@@ -727,6 +867,7 @@ class OrcaWblSettingsDialog(QDialog):
         subspace.setObjectName(f"orcaWbl{prefix}Subspace")
         subspace.addItem("Auto — choose a detected contact", WblContactSubspaceMode.AUTO)
         for mode in (
+            WblContactSubspaceMode.S_ALL_P_LEGACY,
             WblContactSubspaceMode.S_3P_DIRECTIONAL,
             WblContactSubspaceMode.N_2S_2P_DIRECTIONAL,
             WblContactSubspaceMode.N_2P_NORMAL,
@@ -744,6 +885,17 @@ class OrcaWblSettingsDialog(QDialog):
             "Advanced override for the contact-orbital direction in molecular XYZ "
             "coordinates. Leave empty to use the displayed automatic direction model."
         )
+        direction_from_atom = QPushButton("From atom...", self)
+        direction_from_atom.setObjectName(f"orcaWbl{prefix}DirectionFromAtom")
+        direction_from_atom.setToolTip(
+            "Build the direction from the molecular geometry: point the contact "
+            "orbital toward or away from another atom of this structure."
+        )
+        direction_row = QWidget(self)
+        direction_layout = QHBoxLayout(direction_row)
+        direction_layout.setContentsMargins(0, 0, 0, 0)
+        direction_layout.addWidget(manual_direction, 1)
+        direction_layout.addWidget(direction_from_atom)
         manual_aos = QLineEdit(self)
         manual_aos.setObjectName(f"orcaWbl{prefix}ManualAos")
         manual_aos.setPlaceholderText(
@@ -783,7 +935,7 @@ class OrcaWblSettingsDialog(QDialog):
         advanced_form.addRow("Linker override:", linker)
         advanced_form.addRow(self._rich_label("Γ<sub>0</sub> evidence:"), status)
         advanced_form.addRow("Contact orbital projection:", subspace)
-        advanced_form.addRow("Projection direction override:", manual_direction)
+        advanced_form.addRow("Projection direction override:", direction_row)
         advanced_form.addRow("Manual AO numbers:", manual_aos)
         form.addRow(advanced)
         advanced.setVisible(False)
@@ -796,6 +948,7 @@ class OrcaWblSettingsDialog(QDialog):
             status,
             subspace,
             manual_direction,
+            direction_from_atom,
             manual_aos,
             advanced,
         )
@@ -809,6 +962,11 @@ class OrcaWblSettingsDialog(QDialog):
         )
         subspace.currentIndexChanged.connect(
             lambda _index, current=controls: self._subspace_changed(current)
+        )
+        direction_from_atom.clicked.connect(
+            lambda _checked=False, current=controls: (
+                self._choose_direction_atom(current)
+            )
         )
         self._subspace_changed(controls)
         return controls
@@ -1043,6 +1201,12 @@ class OrcaWblSettingsDialog(QDialog):
                 tooltip = (
                     "Resolved from the selected linker and current molecular geometry."
                 )
+                if mode is WblContactSubspaceMode.S_ALL_P_LEGACY:
+                    tooltip = (
+                        "Legacy NCS hypothesis: sum all p-type Löwdin weights on "
+                        "the selected sulfur, including compact radial functions. "
+                        "No shell filtering or contact direction is used."
+                    )
         controls.subspace.setItemText(0, label)
         controls.subspace.setItemData(
             0,
@@ -1060,6 +1224,162 @@ class OrcaWblSettingsDialog(QDialog):
         if not manual:
             controls.manual_aos.clear()
 
+    def _choose_direction_atom(self, controls: _WblContactControls) -> None:
+        """Fill the projection direction from one reviewed reference atom."""
+
+        contact_index = controls.last_atom_index
+        if contact_index is None:
+            QMessageBox.information(
+                self,
+                "Select the contact atom first",
+                "Choose the contact atom before building its projection "
+                "direction from the molecular geometry.",
+            )
+            return
+        choices = {}
+        for atom in self._structure:
+            if atom.index == contact_index:
+                continue
+            label = f"{atom.index + 1} - {atom.element}"
+            choices[f"{label} (toward)"] = (atom.index, False)
+            choices[f"{label} (away from)"] = (atom.index, True)
+        selected, accepted = QInputDialog.getItem(
+            self,
+            "Projection direction from an atom",
+            f"Point the contact orbital of atom {contact_index + 1}:",
+            list(choices),
+            0,
+            False,
+        )
+        if not accepted:
+            return
+        reference_index, pointing_away = choices[selected]
+        try:
+            direction = manual_contact_direction(
+                self._structure,
+                contact_index,
+                reference_index,
+                pointing_away=pointing_away,
+            )
+        except OrcaWblError as error:
+            QMessageBox.warning(self, "Unusable contact direction", str(error))
+            return
+        controls.manual_direction.setText(
+            ", ".join(f"{value:.6f}" for value in direction)
+        )
+
+    def _manual_direction(
+        self,
+        controls: _WblContactControls,
+    ) -> tuple[float, float, float] | None:
+        text = controls.manual_direction.text().strip()
+        if not text:
+            return None
+        fields = tuple(part.strip() for part in text.split(","))
+        if len(fields) != 3:
+            raise OrcaWblError("manual direction requires exactly x, y, z")
+        try:
+            return tuple(float(value) for value in fields)
+        except ValueError:
+            raise OrcaWblError("manual direction needs three numbers") from None
+
+    def _manual_ao_indices(self, controls: _WblContactControls) -> tuple[int, ...]:
+        text = controls.manual_aos.text().strip()
+        if not text:
+            return ()
+        try:
+            parsed = tuple(int(part.strip()) for part in text.split(","))
+        except ValueError:
+            raise OrcaWblError("manual AO numbers must be whole numbers") from None
+        if any(value < 1 for value in parsed):
+            raise OrcaWblError("manual AO numbers are 1-based positive integers")
+        return tuple(value - 1 for value in parsed)
+
+    def _contact_element_error(
+        self,
+        atom_index: int,
+        linker: WblLinkerKind,
+    ) -> str | None:
+        expected = contact_element_for_linker(linker)
+        if self._structure[atom_index].element == expected:
+            return None
+        return f"{linker.value} requires a {expected} contact atom"
+
+    def _contact_projection_problem(
+        self,
+        controls: _WblContactControls,
+    ) -> str | None:
+        """Report why one contact orbital is still unresolved, if it is.
+
+        The same domain resolution the calculation performs runs here, so an
+        unusable contact is reported before any remote work starts.
+        """
+
+        atom_index = controls.atom.currentData()
+        raw_linker = controls.linker.currentData()
+        if not isinstance(atom_index, int):
+            return _CONTACT_ATOM_NOT_SELECTED
+        if raw_linker is None:
+            return "select the linker under Advanced contact settings"
+        linker = WblLinkerKind(raw_linker)
+        element_error = self._contact_element_error(atom_index, linker)
+        if element_error is not None:
+            return element_error
+        try:
+            contact = OrcaWblContactSettings(
+                atom_index=atom_index,
+                linker=linker,
+                subspace_mode=WblContactSubspaceMode(
+                    controls.subspace.currentData()
+                ),
+                manual_direction=self._manual_direction(controls),
+                manual_ao_indices=self._manual_ao_indices(controls),
+            )
+            resolve_contact_projection_geometry(
+                self._structure,
+                self._connectivity,
+                contact,
+            )
+        except OrcaWblError as error:
+            return str(error)
+        return None
+
+    def _projection_block_message(self, side: str, problem: str) -> str:
+        return (
+            f"The {side} contact orbital cannot be resolved: {problem}. Bond "
+            "detection currently uses factor "
+            f"{self._connectivity_multiplier:.2f}; correct it in "
+            "Settings > Bond Detection, or choose the linker, the contact "
+            "orbital projection and its direction for this contact under "
+            "Advanced contact settings."
+        )
+
+    def _reveal_manual_contact_controls(self) -> None:
+        """Show the manual contact editors once, then leave them to the user."""
+
+        if self._advanced_revealed or self._advanced_button.isChecked():
+            return
+        self._advanced_revealed = True
+        self._advanced_button.setChecked(True)
+
+    def _detection_summary_text(self) -> str:
+        detected = len(self._detected_linkers_by_atom)
+        factor = f"{self._connectivity_multiplier:.2f}"
+        if detected == 0:
+            return (
+                f"Linker detection used the current bond threshold factor {factor} "
+                "and recognized no supported contact. Select each contact atom, "
+                "then choose its linker, contact orbital projection and "
+                "projection direction under Advanced contact settings."
+            )
+        atoms = "atom" if detected == 1 else "atoms"
+        return (
+            f"Linker detection used the current bond threshold factor {factor} "
+            f"and recognized {detected} supported contact {atoms}. Change the "
+            "factor in Settings > Bond Detection and reopen this dialog if the "
+            "detected bonds are wrong."
+        )
+
     def _contact_settings(
         self,
         controls: _WblContactControls,
@@ -1069,25 +1389,9 @@ class OrcaWblSettingsDialog(QDialog):
         if atom_index is None or linker is None:
             raise OrcaWblError("Select a contact atom and linker for both sides")
         linker = WblLinkerKind(linker)
-        expected = "S" if linker in {WblLinkerKind.SH, WblLinkerKind.SME} else "N"
-        if self._structure[atom_index].element != expected:
-            raise OrcaWblError(
-                f"{linker.value} requires a {expected} contact atom"
-            )
-        direction_text = controls.manual_direction.text().strip()
-        direction = None
-        if direction_text:
-            fields = tuple(part.strip() for part in direction_text.split(","))
-            if len(fields) != 3:
-                raise OrcaWblError("manual direction requires exactly x, y, z")
-            direction = tuple(float(value) for value in fields)
-        ao_text = controls.manual_aos.text().strip()
-        manual_aos = ()
-        if ao_text:
-            parsed = tuple(int(part.strip()) for part in ao_text.split(","))
-            if any(value < 1 for value in parsed):
-                raise OrcaWblError("manual AO numbers are 1-based positive integers")
-            manual_aos = tuple(value - 1 for value in parsed)
+        element_error = self._contact_element_error(atom_index, linker)
+        if element_error is not None:
+            raise OrcaWblError(element_error)
         return OrcaWblContactSettings(
             atom_index=atom_index,
             linker=linker,
@@ -1096,8 +1400,8 @@ class OrcaWblSettingsDialog(QDialog):
             subspace_mode=WblContactSubspaceMode(
                 controls.subspace.currentData()
             ),
-            manual_direction=direction,
-            manual_ao_indices=manual_aos,
+            manual_direction=self._manual_direction(controls),
+            manual_ao_indices=self._manual_ao_indices(controls),
         )
 
     @Slot()
@@ -1108,6 +1412,15 @@ class OrcaWblSettingsDialog(QDialog):
         if not self._same_gamma.isChecked() and self._right.gamma0.value() <= 0.0:
             self._reject_missing_gamma(self._right.gamma0, "right")
             return
+        for controls, side in ((self._left, "left"), (self._right, "right")):
+            problem = self._contact_projection_problem(controls)
+            if problem is None:
+                continue
+            self._reveal_manual_contact_controls()
+            message = self._projection_block_message(side, problem)
+            self._validation_message.setText(f"WBL cannot start: {message}")
+            QMessageBox.critical(self, "Unresolved ORCA WBL contact", message)
+            return
         try:
             settings = OrcaWblSettings(
                 self._contact_settings(self._left),
@@ -1116,6 +1429,7 @@ class OrcaWblSettingsDialog(QDialog):
                 self._energy_min.value(),
                 self._energy_max.value(),
                 self._energy_step.value(),
+                self._connectivity_multiplier,
             )
             settings.require_runnable(len(self._structure))
         except (OrcaWblError, ValueError) as error:
@@ -1129,6 +1443,16 @@ class OrcaWblSettingsDialog(QDialog):
 
     @Slot()
     def _update_required_input_message(self, *_ignored) -> None:
+        for controls, side in ((self._left, "left"), (self._right, "right")):
+            problem = self._contact_projection_problem(controls)
+            if problem is None or problem == _CONTACT_ATOM_NOT_SELECTED:
+                continue
+            self._reveal_manual_contact_controls()
+            self._validation_message.setText(
+                "Required before WBL can start: "
+                + self._projection_block_message(side, problem)
+            )
+            return
         missing = []
         if self._left.gamma0.value() <= 0.0:
             missing.append("left Γ₀")
@@ -1142,7 +1466,7 @@ class OrcaWblSettingsDialog(QDialog):
             )
             return
         self._validation_message.setText(
-            "Required coupling input is complete. Start Step 2 to begin the WBL "
+            "Required coupling input is complete. Confirm to begin the WBL "
             "transmission analysis."
         )
 

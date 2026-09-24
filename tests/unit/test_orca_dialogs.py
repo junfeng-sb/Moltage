@@ -6,7 +6,15 @@ from unittest.mock import patch
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPlainTextEdit
+from PySide6.QtWidgets import (
+    QApplication,
+    QDoubleSpinBox,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+)
 
 from moltage.app.orca_submission import (
     OrcaOptimizationSubmissionRequest,
@@ -20,6 +28,7 @@ from moltage.domain.server_profile import (
 )
 from moltage.domain.connectivity import Bond, Connectivity
 from moltage.domain.structure import Atom, MolecularStructure
+from moltage.structure.connectivity import DEFAULT_CONNECTIVITY_MULTIPLIER
 from moltage.gui.orca_dialogs import (
     OrcaFrequencySettingsDialog,
     OrcaOptimizationSettingsDialog,
@@ -87,6 +96,35 @@ def synthetic_connectivity(structure):
     )
 
 
+def synthetic_diisothiocyanate():
+    return MolecularStructure(
+        (
+            Atom(0, "S", 0.0, 0.0, 0.0),
+            Atom(1, "C", 1.6, 0.0, 0.0),
+            Atom(2, "N", 2.8, 0.0, 0.0),
+            Atom(3, "C", 4.2, 0.0, 0.0),
+            Atom(4, "C", 5.6, 0.0, 0.0),
+            Atom(5, "N", 7.0, 0.0, 0.0),
+            Atom(6, "C", 8.2, 0.0, 0.0),
+            Atom(7, "S", 9.8, 0.0, 0.0),
+        ),
+        "synthetic di-isothiocyanate",
+    )
+
+
+def chain_connectivity(structure):
+    return Connectivity(
+        len(structure),
+        tuple(Bond(index, index + 1, 1.0) for index in range(len(structure) - 1)),
+    )
+
+
+def unbonded_contact_connectivity(structure):
+    """Connectivity a too-small bond threshold factor leaves for the dithiol."""
+
+    return Connectivity(len(structure), (Bond(1, 2, 1.0), Bond(2, 3, 1.0)))
+
+
 def orca_profile(family=OrcaVersionFamily.V6_1):
     value = "6.1.2" if family is OrcaVersionFamily.V6_1 else "5.0.4"
     return replace(
@@ -152,6 +190,7 @@ class OrcaDialogTests(unittest.TestCase):
             energy_min_relative_ev=-5.0,
             energy_max_relative_ev=5.0,
             energy_step_ev=0.01,
+            connectivity_multiplier=DEFAULT_CONNECTIVITY_MULTIPLIER,
         )
         service = OrcaWblService(object(), object())
         request = OrcaWblRequest(
@@ -216,6 +255,45 @@ class OrcaDialogTests(unittest.TestCase):
 
         self.assertEqual(dialog._build_settings(), initial)
         self.assertTrue(dialog._use_max_core.isChecked())
+        dialog.close()
+
+    def test_optimization_runtime_is_entered_in_hours_and_stored_in_minutes(self):
+        dialog = OrcaOptimizationSettingsDialog(water(), orca_profile())
+        preset_minutes = orca_profile().execution_preset.runtime_minutes
+
+        self.assertIsInstance(dialog._runtime, QDoubleSpinBox)
+        self.assertEqual(dialog._runtime.suffix(), " h")
+        self.assertAlmostEqual(dialog._runtime.value(), preset_minutes / 60.0)
+        labels = " | ".join(item.text() for item in dialog.findChildren(QLabel))
+        self.assertNotIn("minutes", labels)
+
+        dialog._runtime.setValue(2.5)
+
+        self.assertEqual(dialog._build_settings().runtime_minutes, 150)
+        dialog.close()
+
+    def test_preloaded_odd_minute_runtime_survives_the_hours_field_unchanged(self):
+        initial = replace(source_settings(), runtime_minutes=101)
+        dialog = OrcaOptimizationSettingsDialog(
+            water(), orca_profile(), initial_settings=initial
+        )
+
+        self.assertEqual(dialog._build_settings().runtime_minutes, 101)
+        dialog.close()
+
+    def test_frequency_runtime_is_entered_in_hours_and_stored_in_minutes(self):
+        dialog = OrcaFrequencySettingsDialog(source_settings(), water(), orca_profile())
+
+        self.assertIsInstance(dialog._runtime, QDoubleSpinBox)
+        self.assertEqual(dialog._runtime.suffix(), " h")
+        dialog._mode.setCurrentIndex(
+            dialog._mode.findData(OrcaFrequencyMode.NUMFREQ)
+        )
+        dialog._runtime.setValue(12.0)
+
+        dialog._validate_and_accept()
+
+        self.assertEqual(dialog.selected_settings().runtime_minutes, 720)
         dialog.close()
 
     def test_parity_error_is_reported_without_automatic_correction(self):
@@ -291,6 +369,7 @@ class OrcaDialogTests(unittest.TestCase):
         dialog = OrcaWblSettingsDialog(
             structure,
             synthetic_connectivity(structure),
+            connectivity_multiplier=DEFAULT_CONNECTIVITY_MULTIPLIER,
         )
 
         self.assertEqual(dialog._left.atom.currentData(), 1)
@@ -327,6 +406,7 @@ class OrcaDialogTests(unittest.TestCase):
         dialog = OrcaWblSettingsDialog(
             structure,
             synthetic_connectivity(structure),
+            connectivity_multiplier=DEFAULT_CONNECTIVITY_MULTIPLIER,
         )
         for controls, atom_index in ((dialog._left, 1), (dialog._right, 3)):
             controls.atom.setCurrentIndex(controls.atom.findData(atom_index))
@@ -364,6 +444,7 @@ class OrcaDialogTests(unittest.TestCase):
         dialog = OrcaWblSettingsDialog(
             structure,
             synthetic_connectivity(structure),
+            connectivity_multiplier=DEFAULT_CONNECTIVITY_MULTIPLIER,
         )
 
         dialog._left.gamma0.setValue(0.37)
@@ -381,6 +462,7 @@ class OrcaDialogTests(unittest.TestCase):
         dialog = OrcaWblSettingsDialog(
             structure,
             synthetic_connectivity(structure),
+            connectivity_multiplier=DEFAULT_CONNECTIVITY_MULTIPLIER,
             contact_atom_selector=lambda side: requested.append(side) or 3,
         )
 
@@ -397,6 +479,7 @@ class OrcaDialogTests(unittest.TestCase):
         dialog = OrcaWblSettingsDialog(
             structure,
             synthetic_connectivity(structure),
+            connectivity_multiplier=DEFAULT_CONNECTIVITY_MULTIPLIER,
         )
 
         dialog.show()
@@ -427,6 +510,7 @@ class OrcaDialogTests(unittest.TestCase):
         dialog = OrcaWblSettingsDialog(
             structure,
             synthetic_connectivity(structure),
+            connectivity_multiplier=DEFAULT_CONNECTIVITY_MULTIPLIER,
         )
         dialog.show()
         self.application.processEvents()
@@ -444,6 +528,185 @@ class OrcaDialogTests(unittest.TestCase):
         dialog._advanced_button.setChecked(False)
         self.application.processEvents()
         self.assertEqual(dialog.size(), compact_size)
+        dialog.close()
+
+    def test_wbl_detection_reports_the_current_bond_threshold_factor(self):
+        structure = synthetic_dithiol()
+
+        recognized = OrcaWblSettingsDialog(
+            structure,
+            synthetic_connectivity(structure),
+            connectivity_multiplier=1.10,
+        )
+        summary = recognized.findChild(QLabel, "orcaWblDetectionSummary")
+        self.assertIn("factor 1.10", summary.text())
+        self.assertIn("2 supported contact atoms", summary.text())
+        self.assertEqual(recognized._left.atom.currentData(), 1)
+        recognized.close()
+
+        unrecognized = OrcaWblSettingsDialog(
+            structure,
+            unbonded_contact_connectivity(structure),
+            connectivity_multiplier=0.90,
+        )
+        summary = unrecognized.findChild(QLabel, "orcaWblDetectionSummary")
+        self.assertIn("factor 0.90", summary.text())
+        self.assertIn("recognized no supported contact", summary.text())
+        self.assertIsNone(unrecognized._left.atom.currentData())
+        unrecognized.close()
+
+    def test_wbl_undetected_linker_runs_on_an_explicit_orbital_projection(self):
+        structure = synthetic_dithiol()
+        dialog = OrcaWblSettingsDialog(
+            structure,
+            unbonded_contact_connectivity(structure),
+            connectivity_multiplier=0.90,
+        )
+        validation = dialog.findChild(QLabel, "orcaWblValidationMessage")
+
+        for controls, atom_index in ((dialog._left, 1), (dialog._right, 3)):
+            controls.atom.setCurrentIndex(controls.atom.findData(atom_index))
+        self.assertTrue(dialog._advanced_button.isChecked())
+        self.assertIn("select the linker", validation.text())
+
+        for controls in (dialog._left, dialog._right):
+            controls.linker.setCurrentIndex(
+                controls.linker.findData(WblLinkerKind.SH)
+            )
+        self.assertIn("one S-H bond", validation.text())
+        self.assertIn("Settings > Bond Detection", validation.text())
+
+        dialog._left.gamma0.setValue(0.25)
+        with patch.object(QMessageBox, "critical") as critical:
+            dialog._validate_and_accept()
+        critical.assert_called_once()
+        self.assertIn("cannot be resolved", validation.text())
+
+        for controls, direction in (
+            (dialog._left, "-1, 0, 0"),
+            (dialog._right, "1, 0, 0"),
+        ):
+            controls.subspace.setCurrentIndex(
+                controls.subspace.findData(
+                    WblContactSubspaceMode.S_3P_DIRECTIONAL
+                )
+            )
+            controls.manual_direction.setText(direction)
+        dialog._validate_and_accept()
+        selected = dialog.selected_settings()
+
+        self.assertIs(
+            selected.left.subspace_mode,
+            WblContactSubspaceMode.S_3P_DIRECTIONAL,
+        )
+        self.assertEqual(selected.left.manual_direction, (-1.0, 0.0, 0.0))
+        self.assertEqual(selected.right.manual_direction, (1.0, 0.0, 0.0))
+        self.assertEqual(selected.connectivity_multiplier, 0.90)
+        dialog.close()
+
+    def test_wbl_projection_direction_is_built_from_a_reference_atom(self):
+        structure = synthetic_dithiol()
+        dialog = OrcaWblSettingsDialog(
+            structure,
+            unbonded_contact_connectivity(structure),
+            connectivity_multiplier=0.90,
+        )
+        dialog._left.atom.setCurrentIndex(dialog._left.atom.findData(1))
+
+        with patch.object(
+            QInputDialog,
+            "getItem",
+            return_value=("1 - H (toward)", True),
+        ) as chooser:
+            dialog._left.direction_from_atom.click()
+
+        offered = chooser.call_args.args[3]
+        self.assertIn("1 - H (toward)", offered)
+        self.assertIn("1 - H (away from)", offered)
+        self.assertNotIn("2 - S (toward)", offered)
+        self.assertEqual(
+            dialog._left.manual_direction.text(),
+            "-1.000000, 0.000000, 0.000000",
+        )
+        dialog.close()
+
+    def test_wbl_prefills_ncs_sulfur_contacts_with_legacy_all_p_projection(self):
+        structure = synthetic_diisothiocyanate()
+        dialog = OrcaWblSettingsDialog(
+            structure,
+            chain_connectivity(structure),
+            connectivity_multiplier=1.10,
+        )
+
+        self.assertEqual(dialog._left.atom.currentData(), 0)
+        self.assertEqual(dialog._right.atom.currentData(), 7)
+        self.assertEqual(dialog._left.linker.currentData(), WblLinkerKind.NCS)
+        self.assertIn("NCS (automatic)", dialog._left.linker_summary.text())
+        self.assertIn("S all p orbitals", dialog._left.subspace.itemText(0))
+        self.assertGreaterEqual(
+            dialog._left.linker.findData(WblLinkerKind.NCS),
+            0,
+        )
+
+        dialog._left.gamma0.setValue(0.30)
+        dialog._validate_and_accept()
+        selected = dialog.selected_settings()
+
+        self.assertIs(selected.left.linker, WblLinkerKind.NCS)
+        self.assertEqual(selected.left.atom_index, 0)
+        self.assertEqual(selected.right.atom_index, 7)
+        self.assertIs(
+            selected.left.subspace_mode,
+            WblContactSubspaceMode.AUTO,
+        )
+        dialog.close()
+
+    def test_wbl_resubmission_starts_from_the_previous_step_2_settings(self):
+        structure = synthetic_dithiol()
+        previous = OrcaWblSettings(
+            OrcaWblContactSettings(
+                1, WblLinkerKind.SH, 0.25, WblParameterStatus.HYPOTHESIS
+            ),
+            OrcaWblContactSettings(
+                3,
+                WblLinkerKind.SH,
+                0.4,
+                WblParameterStatus.CALIBRATED,
+                WblContactSubspaceMode.S_3P_DIRECTIONAL,
+                manual_direction=(1.0, 0.0, 0.0),
+            ),
+            -4.8,
+            -3.0,
+            3.0,
+            0.1,
+            1.30,
+        )
+        dialog = OrcaWblSettingsDialog(
+            structure,
+            synthetic_connectivity(structure),
+            connectivity_multiplier=1.10,
+            initial_settings=previous,
+            replacing_result=True,
+        )
+
+        notice = dialog.findChild(QLabel, "orcaWblReplacementNotice")
+        self.assertIn("replaces this project's previous WBL", notice.text())
+        self.assertIn("previous result is kept", notice.text())
+        self.assertTrue(any(button.text() == "Recalculate Step 2" for button in dialog.findChildren(QPushButton)))
+        self.assertFalse(dialog._same_gamma.isChecked())
+        self.assertTrue(dialog._advanced_button.isChecked())
+        self.assertFalse(dialog._right.advanced.isHidden())
+        summary = dialog.findChild(QLabel, "orcaWblDetectionSummary")
+        self.assertIn("previous Step 2 run used factor 1.30", summary.text())
+
+        dialog._validate_and_accept()
+
+        # Everything is carried over except the bond threshold factor, which
+        # always follows the bonds the session currently shows.
+        self.assertEqual(
+            dialog.selected_settings(),
+            replace(previous, connectivity_multiplier=1.10),
+        )
         dialog.close()
 
 

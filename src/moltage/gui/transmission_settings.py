@@ -166,8 +166,16 @@ class TransmissionVisualSettings:
     x_axis: AxisVisualSettings
     y_axis: AxisVisualSettings
     ticks: TickVisualSettings
-    curve: CurveVisualSettings
+    curves: tuple[CurveVisualSettings, ...]
     canvas: CanvasVisualSettings
+
+    def __post_init__(self) -> None:
+        if not self.curves:
+            raise ValueError("transmission settings require at least one curve")
+        if not all(
+            isinstance(curve, CurveVisualSettings) for curve in self.curves
+        ):
+            raise TypeError("transmission curve settings are invalid")
 
 
 class _ColorButton(QPushButton):
@@ -479,42 +487,15 @@ class _TickSettingsPage(QWidget):
         )
 
 
-class _CurveSettingsPage(QWidget):
-    def __init__(
-        self,
-        settings: CurveVisualSettings,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        form = QFormLayout(self)
-        self.color = _ColorButton(settings.color, self)
-        self.color.setObjectName("transmissionCurveColor")
-        self.width = _double_spin(
-            settings.width,
-            0.5,
-            12.0,
-            0.5,
-            "transmissionCurveWidth",
-            " px",
-            self,
-        )
-        self.line_style = _line_style_combo(
-            settings.line_style,
-            "transmissionCurveLineStyle",
-            self,
-        )
-        self.legend_visible = QCheckBox("Show curve legend", self)
-        self.legend_visible.setObjectName("transmissionCurveLegendVisible")
-        self.legend_visible.setChecked(settings.legend_visible)
-        self.legend_label = QLineEdit(settings.legend_label, self)
-        self.legend_label.setObjectName("transmissionCurveLegendLabel")
-        self.legend_label.setEnabled(settings.legend_visible)
-        self.legend_visible.toggled.connect(self.legend_label.setEnabled)
-        form.addRow("Curve color:", self.color)
-        form.addRow("Line width:", self.width)
-        form.addRow("Line style:", self.line_style)
-        form.addRow(self.legend_visible)
-        form.addRow("Legend label:", self.legend_label)
+@dataclass(frozen=True, slots=True)
+class _CurveControls:
+    """Widgets that edit exactly one displayed curve."""
+
+    color: "_ColorButton"
+    width: QDoubleSpinBox
+    line_style: QComboBox
+    legend_visible: QCheckBox
+    legend_label: QLineEdit
 
     def settings(self) -> CurveVisualSettings:
         return CurveVisualSettings(
@@ -524,6 +505,99 @@ class _CurveSettingsPage(QWidget):
             legend_visible=self.legend_visible.isChecked(),
             legend_label=self.legend_label.text().strip(),
         )
+
+
+class _CurveSettingsPage(QWidget):
+    def __init__(
+        self,
+        settings: tuple[CurveVisualSettings, ...],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        curves = tuple(settings)
+        if not curves:
+            raise ValueError("curve settings page requires at least one curve")
+        self._controls: list[_CurveControls] = []
+        if len(curves) == 1:
+            form = QFormLayout(self)
+            self._controls.append(self._add_curve(curves[0], "", self, form))
+            return
+        layout = QVBoxLayout(self)
+        for index, curve in enumerate(curves):
+            suffix = "" if index == 0 else str(index + 1)
+            group = QGroupBox(curve.legend_label, self)
+            group.setObjectName(f"transmissionCurveGroup{suffix}")
+            self._controls.append(
+                self._add_curve(curve, suffix, group, QFormLayout(group))
+            )
+            layout.addWidget(group)
+        layout.addStretch(1)
+
+    def _add_curve(
+        self,
+        curve: CurveVisualSettings,
+        suffix: str,
+        parent: QWidget,
+        form: QFormLayout,
+    ) -> _CurveControls:
+        color = _ColorButton(curve.color, parent)
+        color.setObjectName(f"transmissionCurveColor{suffix}")
+        width = _double_spin(
+            curve.width,
+            0.5,
+            12.0,
+            0.5,
+            f"transmissionCurveWidth{suffix}",
+            " px",
+            parent,
+        )
+        line_style = _line_style_combo(
+            curve.line_style,
+            f"transmissionCurveLineStyle{suffix}",
+            parent,
+        )
+        legend_visible = QCheckBox("Show curve legend", parent)
+        legend_visible.setObjectName(f"transmissionCurveLegendVisible{suffix}")
+        legend_visible.setChecked(curve.legend_visible)
+        legend_label = QLineEdit(curve.legend_label, parent)
+        legend_label.setObjectName(f"transmissionCurveLegendLabel{suffix}")
+        legend_label.setEnabled(curve.legend_visible)
+        legend_visible.toggled.connect(legend_label.setEnabled)
+        form.addRow("Curve color:", color)
+        form.addRow("Line width:", width)
+        form.addRow("Line style:", line_style)
+        form.addRow(legend_visible)
+        form.addRow("Legend label:", legend_label)
+        return _CurveControls(
+            color,
+            width,
+            line_style,
+            legend_visible,
+            legend_label,
+        )
+
+    @property
+    def color(self) -> "_ColorButton":
+        return self._controls[0].color
+
+    @property
+    def width(self) -> QDoubleSpinBox:
+        return self._controls[0].width
+
+    @property
+    def line_style(self) -> QComboBox:
+        return self._controls[0].line_style
+
+    @property
+    def legend_visible(self) -> QCheckBox:
+        return self._controls[0].legend_visible
+
+    @property
+    def legend_label(self) -> QLineEdit:
+        return self._controls[0].legend_label
+
+    def settings(self) -> tuple[CurveVisualSettings, ...]:
+        return tuple(control.settings() for control in self._controls)
 
 
 class _CanvasSettingsPage(QWidget):
@@ -675,7 +749,7 @@ class TransmissionSettingsDialog(QDialog):
             parent=self.tabs,
         )
         self.tick_page = _TickSettingsPage(settings.ticks, self.tabs)
-        self.curve_page = _CurveSettingsPage(settings.curve, self.tabs)
+        self.curve_page = _CurveSettingsPage(settings.curves, self.tabs)
         self.canvas_page = _CanvasSettingsPage(settings.canvas, self.tabs)
         self.tabs.addTab(self.x_axis_page, "X Axis")
         self.tabs.addTab(self.y_axis_page, "Y Axis")
@@ -734,7 +808,7 @@ class TransmissionSettingsDialog(QDialog):
                 x_axis=self.x_axis_page.settings(),
                 y_axis=self.y_axis_page.settings(),
                 ticks=self.tick_page.settings(),
-                curve=self.curve_page.settings(),
+                curves=self.curve_page.settings(),
                 canvas=self.canvas_page.settings(),
             )
         except (TypeError, ValueError) as error:

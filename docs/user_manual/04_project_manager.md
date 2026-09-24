@@ -139,6 +139,7 @@ before dispatching one exact cancellation. It never guesses a task by name.
 | **Kill Job** | Explicitly request cancellation for the narrowly supported active Step-3 OOM case after fresh exact-Job validation |
 | **Cancel ORCA Job...** | Cancel the exact verified active ORCA optimization Job |
 | **Resubmit Optimization...** | Open structured settings from an ORCA project and create a new project; an active old Job is cancelled first |
+| **Resubmit Step 2 (WBL)...** | Edit the previous WBL parameters and rerun in the same project; success replaces the old result without rerunning optimization |
 | **Resubmit Step 3...** | Retry reviewed Step-3 timeout/OOM failures with editable resources and immutable scientific inputs |
 | **Retry with explicit self-energy...** | Prepare the narrowly supported AITRANSS interface-overlap retry |
 | **View Transmission** | Open a scientifically successful, currently parseable FHI/AITRANSS result |

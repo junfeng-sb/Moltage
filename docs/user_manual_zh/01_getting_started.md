@@ -8,7 +8,7 @@ Moltage 是一款 Windows 桌面工作台，可用于准备分子结构、构建
 几何结构、在已配置的 Linux 服务器上运行结构化计算，以及查看部分电子结构
 和输运结果。
 
-v0.2.1 包含三类相互区分的计算流程：
+v0.2.2 包含三类相互区分的计算流程：
 
 - **FHI-aims + AITRANSS**：从分子优化到非自旋 transmission 查看的一套
   由 Moltage 管理的四阶段流程。
@@ -31,10 +31,10 @@ Moltage 不附带 FHI-aims、AITRANSS 或 ORCA。用户必须合法取得这些�
 - 本地查看和本地 tight binding 不需要服务器账户。
 - 远程计算需要已保存的服务器配置。
 
-### 2.2 安装 Moltage v0.2.1
+### 2.2 安装 Moltage v0.2.2
 
-1. 打开 [v0.2.1 release 页面](https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.1)。
-2. 下载 `Moltage-Setup-0.2.1.exe`。
+1. 打开 [v0.2.2 release 页面](https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.2)。
+2. 下载 `Moltage-Setup-0.2.2.exe`。
 3. 运行安装程序，选择安装目录，并决定是否创建桌面快捷方式。
 
 Windows 可能显示权限或安全提示。继续前请确认安装包来自官方 release 页面。
@@ -162,7 +162,7 @@ Moltage 启动时不会自动连接服务器。空的 Geometry 工作区包含 *
 | `.next_step` | 完整独立的 FHI-aims next-step 分子 geometry |
 | `.cube`, `.cub` | 单个有符号标量数据集；支持 ORCA/Gaussian 轨道格式，或由用户明确确认坐标单位的 FHI-aims/未知格式 |
 
-v0.2.1 不支持 V3000、SDF、芳香/type-4 键、多数据集 Cube、形式电荷可视化和
+v0.2.2 不支持 V3000、SDF、芳香/type-4 键、多数据集 Cube、形式电荷可视化和
 键级编辑。格式错误会明确失败，Moltage 不会静默改用其他解析器。
 
 ### 4.2 打开文件
@@ -210,9 +210,10 @@ v0.2.1 不支持 V3000、SDF、芳香/type-4 键、多数据集 Cube、形式电
 
 `distance(i,j) <= factor × (covalent radius(i) + covalent radius(j))`
 
-Factor 默认为 `1.10`，允许范围为 `0.01`–`10.00`，显示两位小数，每次改变 `0.10`。
-每次数值变化都会预览重新生成的推断边。**OK** 保留预览的 factor/图；
-**Cancel** 精确恢复打开对话框前的图。显式 MOL V2000 Connectivity 不受影响。
+系数初始值为 `1.10`，允许范围为 `0.01`–`10.00`，显示两位小数，每次改变 `0.10`。
+每次数值变化都会预览重新识别的成键关系。**OK** 将系数保存到本机，并保留预览结果；
+下次启动会恢复该系数。**Cancel** 不保存，恢复打开对话框前的系数和成键关系。
+保存失败时也会恢复原状态并提示错误。MOL V2000 文件中已明确给出的成键关系不受影响。
 
 这种 Connectivity 只是供应用程序操作使用的近似结果，不代表键级、化合价或
 化学结构鉴定。

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from hashlib import sha256
 from pathlib import PurePosixPath
@@ -20,6 +20,7 @@ from moltage.domain.calculation_project import (
     begin_orca_wbl_step,
     complete_orca_wbl_step,
     fail_orca_wbl_step,
+    orca_wbl_stage_blocks_new_run,
 )
 from moltage.domain.server_profile import ServerProfile
 from moltage.orca.catalog import OrcaBasis
@@ -40,8 +41,10 @@ from moltage.orca.wavefunction import (
 )
 from moltage.remote.orca_runtime import require_usable_orca_runtime
 from moltage.remote.project_repository import RemoteProjectRepository
+from moltage.remote.project_manifest import serialize_project_manifest
 from moltage.remote.runtime_environment import runtime_environment_commands
 from moltage.remote.step_inputs import upload_new_files_atomically
+from moltage.remote.wbl_results import WblResultPublication
 from moltage.structure.connectivity import infer_connectivity
 from moltage.structure.covalent_radii import load_default_covalent_radii
 
@@ -61,6 +64,7 @@ class OrcaWblRequest:
     remote_project_path: str
     settings: OrcaWblSettings
     supplied_password: str | None = None
+    replace_existing_result: OrcaWblResultEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +74,36 @@ class OrcaWblServiceResult:
     remote_wbl_directory: str
     artifact_hashes: tuple[tuple[str, str], ...]
     molden_generated: bool
+    cleanup_warning: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OrcaWblUtilityEvidence:
+    """Verified ORCA conversion utilities adjacent to one recorded driver."""
+
+    orca_2json_path: str
+    orca_2mkl_path: str | None
+
+
+def verify_orca_wbl_utilities(executor, runtime) -> OrcaWblUtilityEvidence:
+    """Verify the sibling conversion utilities of one recorded ORCA driver.
+
+    The WBL stage and the external-optimization import share this one check so
+    readiness is decided by the same evidence; neither resolves a bare command
+    through ``PATH``.
+    """
+
+    orca_2json, orca_2mkl = _utility_paths(runtime.executable_path)
+    molden_available = _verify_utilities(
+        executor,
+        runtime.environment,
+        orca_2json,
+        orca_2mkl,
+    )
+    return OrcaWblUtilityEvidence(
+        orca_2json,
+        orca_2mkl if molden_available else None,
+    )
 
 
 class OrcaWblService:
@@ -109,22 +143,60 @@ class OrcaWblService:
         temporary_directory = None
         repository = None
         project = None
+        previous_step = None
+        publication = None
         wbl_started = False
         try:
             repository = RemoteProjectRepository(executor)
             project = repository.load(
                 request.remote_project_path, preserve_remote_errors=True
             )
-            self._validate_project(project, profile, request.settings)
-            project = repository.persist_update(
-                begin_orca_wbl_step(
-                    project,
-                    settings=request.settings,
-                    started_at=_aware_now(self._now_factory),
-                ),
-                updated_at=_aware_now(self._now_factory),
-                preserve_remote_errors=True,
+            self._validate_project(
+                project, profile, request.settings, request.replace_existing_result,
             )
+            previous_step = next((
+                step for step in project.steps
+                if step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION
+                and step.state is ProjectStepState.SUCCEEDED
+            ), None)
+            token = _safe_temporary_id(self._temporary_id_factory())
+            publication = WblResultPublication(
+                executor, project.remote_project_path, token,
+                previous_step.orca_wbl_result.artifact_hashes if previous_step else None,
+            )
+            publication.preflight()
+            if previous_step is not None:
+                publication.preserve_previous_manifest(
+                    serialize_project_manifest(project).encode("utf-8")
+                )
+            started_candidate = begin_orca_wbl_step(
+                project, settings=request.settings,
+                started_at=_aware_now(self._now_factory),
+            )
+            started_at = _aware_now(self._now_factory)
+            try:
+                project = repository.persist_update(
+                    started_candidate, updated_at=started_at,
+                    preserve_remote_errors=True,
+                )
+            except Exception as error:
+                # If the acknowledgement was lost, confirm the exact RUNNING
+                # record before starting any conversion or result publication.
+                try:
+                    observed = repository.load(project.remote_project_path, preserve_remote_errors=True)
+                except Exception:
+                    raise OrcaWblServiceError(
+                        "WBL start could not be confirmed. Prior result files were "
+                        "not replaced; refresh the project before any retry. "
+                        f"Details: {error}"
+                    ) from None
+                expected = replace(
+                    started_candidate, revision=project.revision + 1, updated_at=started_at,
+                )
+                if observed != expected:
+                    raise
+                project = observed
+                report("WBL start acknowledgement was interrupted; the RUNNING record was verified.")
             wbl_started = True
             if project_updated is not None:
                 project_updated(project)
@@ -136,13 +208,10 @@ class OrcaWblService:
             runtime = optimization.orca_runtime or profile.orca_runtime
             report("Validating the recorded ORCA runtime and WBL utility...")
             require_usable_orca_runtime(executor, runtime)
-            orca_2json, orca_2mkl = _utility_paths(runtime.executable_path)
-            molden_available = _verify_utilities(
-                executor,
-                runtime.environment,
-                orca_2json,
-                orca_2mkl,
-            )
+            utilities = verify_orca_wbl_utilities(executor, runtime)
+            orca_2json = utilities.orca_2json_path
+            orca_2mkl = utilities.orca_2mkl_path
+            molden_available = orca_2mkl is not None
             project_root = project.remote_project_path
             gbw_path = str(PurePosixPath(project_root) / "orca_opt.gbw")
             expected_gbw = optimization.orca_optimization_result.gbw_sha256
@@ -158,9 +227,9 @@ class OrcaWblService:
                 executor.read_bytes(str(PurePosixPath(project_root) / "orca_opt.xyz")),
                 submitted,
             )
-            token = _safe_temporary_id(self._temporary_id_factory())
-            temporary_directory = f"/tmp/moltage-orca-wbl-{token}"
-            executor.mkdir(temporary_directory)
+            conversion_directory = f"/tmp/moltage-orca-wbl-{token}"
+            executor.mkdir(conversion_directory)
+            temporary_directory = conversion_directory
             config = render_orca_2json_configuration()
             executor.write_bytes(
                 str(PurePosixPath(temporary_directory) / "orca_wbl.json.conf"),
@@ -188,7 +257,14 @@ class OrcaWblService:
                 if not molden:
                     raise OrcaWblServiceError("orca_2mkl produced an empty Molden artifact")
             wavefunction = parse_orca_wavefunction_json(wavefunction_json)
-            connectivity = infer_connectivity(optimized, load_default_covalent_radii())
+            # Linker recognition and the automatic contact direction follow the
+            # bond threshold factor the user reviewed for this run, not the
+            # inference default.
+            connectivity = infer_connectivity(
+                optimized,
+                load_default_covalent_radii(),
+                multiplier=request.settings.connectivity_multiplier,
+            )
             optimization_settings = optimization.orca_optimization_settings
             if optimization_settings is None:
                 raise OrcaWblServiceError(
@@ -222,7 +298,7 @@ class OrcaWblService:
                 "orca_executable": runtime.executable_path,
                 "orca_version": runtime.version_evidence.version or "UNVERIFIED",
                 "orca_2json_path": orca_2json,
-                "orca_2mkl_path": orca_2mkl if molden_available else "UNAVAILABLE",
+                "orca_2mkl_path": orca_2mkl or "UNAVAILABLE",
             }
             rendered, _ = render_wbl_artifacts(
                 analysis,
@@ -235,20 +311,31 @@ class OrcaWblService:
                 **({ORCA_WBL_MOLDEN: molden} if molden is not None else {}),
                 **rendered,
             }
-            final_directory = str(PurePosixPath(project_root) / "wbl")
-            staging_directory = str(
-                PurePosixPath(project_root) / f".wbl.tmp-{token}"
+            final_directory = publication.final
+            staging_directory = publication.staging
+            publication.new_hashes = tuple(
+                (name, sha256(data).hexdigest()) for name, data in files.items()
             )
-            _require_absent(executor, final_directory)
-            executor.mkdir(staging_directory)
+            try:
+                executor.mkdir(staging_directory)
+            except Exception as error:
+                raise OrcaWblServiceError(
+                    "WBL staging creation could not be confirmed; inspect "
+                    f"{staging_directory}: {error}"
+                ) from None
+            publication.staging_created = True
             report("Uploading and verifying WBL provenance artifacts...")
             artifact_hashes = upload_new_files_atomically(
                 executor,
                 staging_directory,
                 files,
                 temporary_id_factory=self._temporary_id_factory,
+                verify_on_server=True,
             )
-            executor.rename(staging_directory, final_directory)
+            # Recheck the authoritative record before moving either result set.
+            if repository.load(project_root, preserve_remote_errors=True) != project:
+                raise OrcaWblServiceError("The project changed during WBL calculation; no result was replaced")
+            publication.publish(artifact_hashes)
             evidence = OrcaWblResultEvidence(
                 WBL_MODEL_ID,
                 WBL_MODEL_CLASSIFICATION,
@@ -285,23 +372,48 @@ class OrcaWblService:
                 ),
                 finished_at=_aware_now(self._now_factory),
             )
-            updated = repository.persist_update(
-                updated_candidate,
-                updated_at=_aware_now(self._now_factory),
-                preserve_remote_errors=True,
-            )
+            committed_at = _aware_now(self._now_factory)
+            try:
+                updated = repository.persist_update(
+                    updated_candidate, updated_at=committed_at,
+                    preserve_remote_errors=True,
+                )
+            except Exception:
+                # A failed acknowledgement is not proof that the rename failed.
+                observed = repository.load(project_root, preserve_remote_errors=True)
+                expected = replace(updated_candidate, revision=project.revision + 1, updated_at=committed_at)
+                if observed != expected:
+                    raise
+                publication.verify(publication.final, artifact_hashes)
+                updated = observed
+                report("WBL manifest acknowledgement was interrupted; the committed result was verified.")
             project = updated
+            cleanup_warning = None
+            try:
+                publication.discard_backup()
+            except Exception as error:
+                cleanup_warning = (
+                    "New WBL result saved; previous-result cleanup needs attention. "
+                    f"Inspect {publication.backup} and {publication.previous_manifest}: {error}"
+                )
+                report(cleanup_warning)
             if project_updated is not None:
                 project_updated(updated)
-            self._local_index_repository.mark_seen(
-                updated, bound_server_profile_id=profile.profile_id
-            )
+            try:
+                self._local_index_repository.mark_seen(
+                    updated, bound_server_profile_id=profile.profile_id
+                )
+            except Exception as error:
+                warning = f"New WBL result saved; local project index update failed: {error}"
+                cleanup_warning = "; ".join(filter(None, (cleanup_warning, warning)))
+                report(warning)
             return OrcaWblServiceResult(
                 updated,
                 analysis,
                 final_directory,
                 artifact_hashes,
                 molden is not None,
+                cleanup_warning,
             )
         except Exception as error:
             diagnostic = str(error)
@@ -311,12 +423,23 @@ class OrcaWblService:
                 for step in project.steps
             ):
                 try:
-                    project = repository.persist_update(
-                        fail_orca_wbl_step(
-                            project,
-                            diagnostic=diagnostic,
+                    current = repository.load(project.remote_project_path, preserve_remote_errors=True)
+                    if current != project:
+                        raise OrcaWblServiceError("Project revision changed; refusing an unverified rollback")
+                    publication.rollback()
+                    failed_candidate = (
+                        replace(project, steps=tuple(
+                            previous_step if step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION else step
+                            for step in project.steps
+                        ))
+                        if previous_step is not None
+                        else fail_orca_wbl_step(
+                            project, diagnostic=diagnostic,
                             finished_at=_aware_now(self._now_factory),
-                        ),
+                        )
+                    )
+                    project = repository.persist_update(
+                        failed_candidate,
                         updated_at=_aware_now(self._now_factory),
                         preserve_remote_errors=True,
                     )
@@ -325,11 +448,28 @@ class OrcaWblService:
                     )
                     if project_updated is not None:
                         project_updated(project)
+                    if previous_step is not None:
+                        diagnostic += "; previous WBL parameters and result were restored"
+                    try:
+                        publication.discard_staging()
+                        publication.discard_previous_manifest()
+                    except Exception as cleanup_error:
+                        diagnostic += (
+                            f"; temporary result cleanup needs attention at {publication.staging}: "
+                            f"{cleanup_error}"
+                        )
                 except Exception as persistence_error:
                     diagnostic += (
-                        "; the WBL failure state could not be persisted: "
-                        f"{persistence_error}"
+                        "; WBL outcome/rollback could not be verified; no further files were removed. "
+                        f"Retained result locations: {publication.final}, {publication.backup}, "
+                        f"{publication.staging}. Details: {persistence_error}"
                     )
+            if publication is not None and publication.previous_manifest_hash is not None:
+                diagnostic += (
+                    "; previous project settings and checksums are retained at "
+                    f"{publication.previous_manifest}. Inspect the current project "
+                    "before any manual recovery; do not restore this snapshot blindly."
+                )
             raise OrcaWblServiceError(diagnostic) from None
         finally:
             if temporary_directory is not None:
@@ -341,7 +481,7 @@ class OrcaWblService:
                     pass
             executor.close()
 
-    def _validate_project(self, project, profile, settings):
+    def _validate_project(self, project, profile, settings, replace_existing_result=None):
         if project.workflow_kind is not CalculationWorkflowKind.ORCA:
             raise OrcaWblServiceError("Selected project is not an ORCA workflow")
         if (
@@ -354,11 +494,14 @@ class OrcaWblService:
             raise OrcaWblServiceError(
                 "Confirm the server profile associated with this ORCA project"
             )
-        if any(
-            step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION
-            for step in project.steps
-        ):
+        if orca_wbl_stage_blocks_new_run(project):
             raise OrcaWblServiceError("This project already contains an ORCA WBL stage")
+        previous = next((step for step in project.steps if step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION), None)
+        current_result = previous.orca_wbl_result if previous and previous.state is ProjectStepState.SUCCEEDED else None
+        if current_result != replace_existing_result:
+            raise OrcaWblServiceError(
+                "Confirm replacement of the current WBL result; refresh the project and reopen Step 2 settings"
+            )
         optimization = project.steps[0]
         evidence = optimization.orca_optimization_result
         if evidence is None or not evidence.succeeded or not evidence.wbl_input_ready:
@@ -438,19 +581,6 @@ def _remote_sha256(executor, path):
     if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
         raise OrcaWblServiceError("Remote GBW SHA256 evidence is malformed")
     return digest
-
-
-def _require_absent(executor, path):
-    from moltage.remote.executor import RemotePathNotFoundError
-
-    try:
-        executor.stat(path)
-    except RemotePathNotFoundError:
-        return
-    raise OrcaWblServiceError(
-        "Remote WBL directory already exists without matching manifest evidence; "
-        "no files were overwritten"
-    )
 
 
 def _safe_temporary_id(value):

@@ -61,7 +61,7 @@ Folder 按钮只列出现有远程目录。**Up** 移到父目录，**Refresh** 
 ### 9.5 凭据与隐私
 
 - 密码绝不会写入 `server_profiles.json`、项目清单、日志、截图或仓库文件。
-- v0.2.1 仅支持密码 SSH；尚未实现 SSH key、ssh-agent 和 jump host。
+- v0.2.2 仅支持密码 SSH；尚未实现 SSH key、ssh-agent 和 jump host。
 - 可选邮件接收地址属于服务器配置数据，但不是密码。
 - 提交公开 issue 时，不要包含真实 hostname、用户名、路径、项目名称或 capture，
   除非你有意公开这些信息。
@@ -89,7 +89,7 @@ Folder 按钮只列出现有远程目录。**Up** 移到父目录，**Refresh** 
 
 ### 10.2 调度器类型与命令位置
 
-Moltage v0.2.1 支持 **Slurm** 和 **IBM Spectrum LSF**。
+Moltage v0.2.2 支持 **Slurm** 和 **IBM Spectrum LSF**。
 
 | 控件 | 含义 |
 | --- | --- |
@@ -321,7 +321,7 @@ ORCA 优化需要：
 | **Discover ORCA** | 有界自动发现，仅 Slurm 可用 |
 | **Validate Manual Path** | 验证明确输入的路径和环境；Slurm 和 LSF 均可用 |
 
-发现流程不会自动选择最新 ORCA。存在多个完整候选时，需要用户选择。v0.2.1
+发现流程不会自动选择最新 ORCA。存在多个完整候选时，需要用户选择。v0.2.2
 已审查的结构化支持范围为 ORCA 5.0.x、6.0.x 和 6.1.x。
 
 ### 12.3 WBL conversion utility

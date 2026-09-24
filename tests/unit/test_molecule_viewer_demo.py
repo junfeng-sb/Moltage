@@ -97,7 +97,10 @@ from moltage.gui.workspace_tabs import (
     TransmissionWorkspaceIdentity,
 )
 from moltage.structure.anchor_detector import detect_anchors
-from moltage.structure.connectivity import infer_connectivity
+from moltage.structure.connectivity import (
+    DEFAULT_CONNECTIVITY_MULTIPLIER,
+    infer_connectivity,
+)
 from moltage.structure.covalent_radii import load_default_covalent_radii
 from moltage.structure.cube import CubeScalarField
 from moltage.structure.vdw_radii import load_default_vdw_radii
@@ -416,6 +419,66 @@ class MoleculeViewerDemoSmokeTests(unittest.TestCase):
                 CalculationWorkflowKind.ORCA,
             ),
         )
+
+    def test_orca_step1_flow_runs_no_fhi_contact_au_start_planning(self) -> None:
+        """ORCA optimization must not consult FHI-aims contact-Au advice."""
+
+        workspace = self.window._active_geometry_workspace()
+        self.assertIsNotNone(workspace)
+        saved = (self.window._structure, self.window._anchors)
+        self.window._structure = MolecularStructure(
+            (
+                Atom(0, "S", 0.0, 0.0, 0.0),
+                Atom(1, "H", 1.34, 0.0, 0.0),
+            ),
+            "Au-free molecule",
+        )
+        self.window._anchors = ()
+        planning_calls = []
+        dialog_recommendations = []
+
+        def record_dialog(*args, **_kwargs):
+            dialog_recommendations.append(args[3])
+            dialog = MagicMock()
+            dialog.exec.return_value = QDialog.DialogCode.Rejected
+            return dialog
+
+        try:
+            with (
+                patch(
+                    "tools.molecule_viewer_demo.recommend_start_step",
+                    side_effect=lambda *args: planning_calls.append(args)
+                    or MagicMock(),
+                ),
+                patch(
+                    "tools.molecule_viewer_demo._create_project_submission_dependencies"
+                ) as dependencies,
+                patch(
+                    "tools.molecule_viewer_demo.NewCalculationProjectDialog",
+                    side_effect=record_dialog,
+                ),
+                patch.object(
+                    self.window, "_active_geometry_workspace", return_value=workspace
+                ),
+                patch.object(self.window, "_bound_geometry_workspace", workspace),
+            ):
+                collection = dependencies.return_value.profile_repository.load.return_value
+                collection.profiles = (profile(),)
+                collection.last_selected_profile_id = None
+
+                self.window._submit_new_optimization_project(
+                    preselected_engine=CalculationWorkflowKind.ORCA,
+                )
+                self.assertEqual(planning_calls, [])
+                self.assertEqual(dialog_recommendations, [None])
+
+                self.window._submit_new_optimization_project(
+                    preselected_engine=CalculationWorkflowKind.FHI_AIMS_AITRANSS,
+                )
+                self.assertEqual(len(planning_calls), 1)
+                self.assertIsNotNone(dialog_recommendations[-1])
+        finally:
+            self.window._structure, self.window._anchors = saved
 
     def test_project_scoped_orca_resubmit_keeps_identity_and_provenance(self) -> None:
         structure = synthetic_orca_structure()
@@ -823,6 +886,7 @@ class MoleculeViewerDemoSmokeTests(unittest.TestCase):
                 structure,
                 connectivity,
                 self.window,
+                connectivity_multiplier=self.window._connectivity_multiplier,
                 contact_atom_selector=self.window._select_orca_wbl_contact_atom,
             )
 
@@ -839,6 +903,31 @@ class MoleculeViewerDemoSmokeTests(unittest.TestCase):
             self.assertIs(self.window._pick_mode, _ViewerPickMode.NORMAL)
             settings.close()
 
+            # Step 2 must interpret the bonds the session currently shows.
+            self.window._connectivity_multiplier = 1.35
+            self.window._calculate_active_orca_wbl()
+            self.assertEqual(
+                self.window._projects_dialog.calculate_orca_wbl.call_args.kwargs[
+                    "connectivity_multiplier"
+                ],
+                1.35,
+            )
+
+            # Resubmitting Step 2 from Projects reruns only Step 2, from the
+            # project's own geometry workspace.
+            self.window._projects_dialog.reset_mock()
+            self.window._resubmit_orca_wbl((snapshot, profile))
+            rerun = self.window._projects_dialog.calculate_orca_wbl.call_args
+            self.assertIs(rerun.args[0], snapshot)
+            self.assertIs(rerun.args[1], profile)
+            self.assertEqual(rerun.kwargs["connectivity_multiplier"], 1.35)
+            self.assertEqual(
+                rerun.kwargs["contact_atom_selector"],
+                self.window._select_orca_wbl_contact_atom,
+            )
+            self.window._projects_dialog.hide.assert_called_once_with()
+            self.assertIs(self.window._active_orca_geometry_workspace(), workspace)
+
             self.window._orca_wbl_operation_status_changed(
                 snapshot.project.project_id,
                 "Synthetic ORCA WBL processing is running.",
@@ -853,6 +942,9 @@ class MoleculeViewerDemoSmokeTests(unittest.TestCase):
                 if index >= 0:
                     self.window._close_workspace_tab(index)
             self.window._projects_dialog = original_projects_dialog
+            self.window._connectivity_multiplier = (
+                DEFAULT_CONNECTIVITY_MULTIPLIER
+            )
             if (
                 original_workspace is not None
                 and original_workspace.content in self.window._workspaces_by_widget

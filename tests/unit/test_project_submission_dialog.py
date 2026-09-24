@@ -19,13 +19,18 @@ from moltage.app.project_submission import (
     SbatchRejectedError,
 )
 from moltage.domain.calculation_project import CalculationWorkflowKind, ProjectStepKind
+from moltage.domain.scheduler import SchedulerKind
 from moltage.domain.server_profile import (
     OrcaRuntimeConfiguration,
+    RuntimeDiscoveryHints,
     RuntimeEnvironment,
     RuntimeEnvironmentMode,
+    RuntimeLocation,
+    RuntimeLocationKind,
 )
 from moltage.domain.structure import Atom, MolecularStructure
 from moltage.gui.project_submission import (
+    orca_runtime_unavailable_message,
     NewCalculationProjectDialog,
     NewProjectSelection,
     SubmissionConfirmationDialog,
@@ -55,6 +60,28 @@ AMBIGUOUS_RECOMMENDATION = StartStepRecommendation(
     True,
     "The linker-bound Au pattern is ambiguous; choose explicitly.",
 )
+NO_LINKER_RECOMMENDATION = StartStepRecommendation(
+    StartStepAdvice.AMBIGUOUS,
+    None,
+    True,
+    "No supported linker sites were recognized; choose Step 1 or Step 2.",
+)
+
+
+def _orca_profile():
+    return replace(
+        profile(),
+        orca_runtime=OrcaRuntimeConfiguration(
+            "/apps/example/orca/orca",
+            RuntimeEnvironment(RuntimeEnvironmentMode.NONE),
+            OrcaVersionEvidence(
+                "Program Version 6.1.2",
+                "6.1.2",
+                OrcaVersionFamily.V6_1,
+                "synthetic validation",
+            ),
+        ),
+    )
 
 
 def _input_plan() -> AimsOptimizationInputPlan:
@@ -143,7 +170,7 @@ class ProjectSubmissionDialogTests(unittest.TestCase):
 
         self.assertIs(dialog._current_step(), ProjectStepKind.ORCA_OPTIMIZATION)
         self.assertFalse(dialog._continue_button.isEnabled())
-        self.assertIn("Configure and validate ORCA", dialog._cluster_status.text())
+        self.assertIn("No validated ORCA installation", dialog._cluster_status.text())
 
         configured = replace(
             incomplete,
@@ -172,6 +199,146 @@ class ProjectSubmissionDialogTests(unittest.TestCase):
 
         self.assertTrue(configured_dialog._continue_button.isEnabled())
         self.assertEqual(configured_dialog._cluster_status.text(), "")
+
+    def test_orca_step1_never_shows_or_requires_contact_au_detection(self) -> None:
+        """An Au-free molecule must not surface FHI-aims contact-Au advice."""
+
+        server = _orca_profile()
+
+        dialog = NewCalculationProjectDialog(
+            (server,),
+            server.profile_id,
+            "Methanethiol",
+            STEP1_RECOMMENDATION,
+            preview_date=date(2030, 1, 2),
+            preselected_engine=CalculationWorkflowKind.ORCA,
+        )
+
+        self.assertFalse(dialog._form.isRowVisible(dialog._detected))
+        self.assertEqual(dialog._detected.text(), "")
+        self.assertIs(dialog._current_step(), ProjectStepKind.ORCA_OPTIMIZATION)
+        self.assertTrue(dialog._continue_button.isEnabled())
+
+    def test_orca_step1_needs_no_fhi_start_advice_at_all(self) -> None:
+        server = _orca_profile()
+
+        dialog = NewCalculationProjectDialog(
+            (server,),
+            server.profile_id,
+            "Methanethiol",
+            None,
+            preview_date=date(2030, 1, 2),
+            preselected_engine=CalculationWorkflowKind.ORCA,
+        )
+
+        self.assertFalse(dialog._form.isRowVisible(dialog._detected))
+        self.assertTrue(dialog._continue_button.isEnabled())
+
+    def test_orca_step1_accepts_a_structure_without_any_recognized_linker(self) -> None:
+        server = _orca_profile()
+
+        dialog = NewCalculationProjectDialog(
+            (server,),
+            server.profile_id,
+            "Methane",
+            NO_LINKER_RECOMMENDATION,
+            preview_date=date(2030, 1, 2),
+            preselected_engine=CalculationWorkflowKind.ORCA,
+        )
+
+        self.assertIs(dialog._current_step(), ProjectStepKind.ORCA_OPTIMIZATION)
+        self.assertFalse(dialog._form.isRowVisible(dialog._detected))
+        self.assertTrue(dialog._continue_button.isEnabled())
+
+    def test_missing_fhi_advice_is_rejected_unless_the_engine_is_fixed_to_orca(
+        self,
+    ) -> None:
+        server = _orca_profile()
+
+        with self.assertRaisesRegex(ValueError, "start-step advice is required"):
+            NewCalculationProjectDialog(
+                (server,),
+                server.profile_id,
+                "Methanethiol",
+                None,
+                preview_date=date(2030, 1, 2),
+            )
+
+    def test_detected_structure_row_is_shown_only_for_fhi_aims(self) -> None:
+        server = _orca_profile()
+        dialog = NewCalculationProjectDialog(
+            (server,),
+            server.profile_id,
+            "ExampleMolecule",
+            STEP1_RECOMMENDATION,
+            preview_date=date(2030, 1, 2),
+        )
+
+        self.assertTrue(dialog._form.isRowVisible(dialog._detected))
+        self.assertEqual(dialog._detected.text(), STEP1_RECOMMENDATION.reason)
+
+        dialog._engine.setCurrentIndex(
+            dialog._engine.findData(CalculationWorkflowKind.ORCA)
+        )
+        self.application.processEvents()
+
+        self.assertFalse(dialog._form.isRowVisible(dialog._detected))
+
+        dialog._engine.setCurrentIndex(
+            dialog._engine.findData(CalculationWorkflowKind.FHI_AIMS_AITRANSS)
+        )
+        self.application.processEvents()
+
+        self.assertTrue(dialog._form.isRowVisible(dialog._detected))
+        self.assertEqual(dialog._detected.text(), STEP1_RECOMMENDATION.reason)
+
+    def test_saved_but_unvalidated_orca_path_is_named_as_the_blocker(self) -> None:
+        """A typed ORCA path is only a hint; submission needs validation."""
+
+        server = replace(
+            profile(),
+            runtime_hints=RuntimeDiscoveryHints(
+                orca=RuntimeLocation(
+                    "/apps/example/orca/orca",
+                    RuntimeEnvironment(
+                        RuntimeEnvironmentMode.MODULES, ("orca/6.1.0",)
+                    ),
+                    RuntimeLocationKind.EXECUTABLE,
+                ),
+            ),
+        )
+        self.assertIsNone(server.orca_runtime)
+
+        dialog = NewCalculationProjectDialog(
+            (server,),
+            server.profile_id,
+            "Methanethiol",
+            None,
+            preview_date=date(2030, 1, 2),
+            preselected_engine=CalculationWorkflowKind.ORCA,
+            cluster_settings_callback=lambda _selected: None,
+        )
+
+        self.assertFalse(dialog._continue_button.isEnabled())
+        status = dialog._cluster_status.text()
+        self.assertIn("has not been validated", status)
+        self.assertIn("Validate Manual Path", status)
+        self.assertFalse(dialog._cluster_settings.isHidden())
+
+    def test_missing_orca_runtime_names_the_scheduler_specific_action(self) -> None:
+        from test_lsf_scheduler import lsf_preset
+
+        slurm = profile()
+        lsf = replace(slurm, execution_preset=lsf_preset())
+        self.assertIs(lsf.execution_preset.scheduler_kind, SchedulerKind.LSF)
+
+        self.assertIn("Discover ORCA", orca_runtime_unavailable_message(slurm))
+        self.assertIn(
+            "No validated ORCA installation",
+            orca_runtime_unavailable_message(slurm),
+        )
+        self.assertNotIn("Discover ORCA", orca_runtime_unavailable_message(lsf))
+        self.assertIn("Validate Manual Path", orca_runtime_unavailable_message(lsf))
 
     def test_direct_step3_is_fixed_and_requires_preoptimized_confirmation(self) -> None:
         server = profile(save_password=False)

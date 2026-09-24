@@ -9,7 +9,7 @@ PACKAGING_ROOT = PROJECT_ROOT / "packaging"
 
 class WindowsPackagingTests(unittest.TestCase):
     def test_distribution_version_is_consistent(self) -> None:
-        expected_version = "0.2.1"
+        expected_version = "0.2.2"
         metadata = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text("utf-8"))
         self.assertEqual(metadata["project"]["version"], expected_version)
 
@@ -56,8 +56,8 @@ class WindowsPackagingTests(unittest.TestCase):
             installer,
         )
         self.assertIn(f'Moltage-Setup-{expected_version}.exe"', build_script)
-        self.assertIn(f"0.1.13 to {expected_version}", bundled_log)
-        self.assertIn(f"## 0.1.13 to {expected_version}", changelog)
+        self.assertIn(f"0.2.1 to {expected_version} (Pre-release)", bundled_log)
+        self.assertIn(f"## {expected_version} — Pre-release", changelog)
 
     def test_build_dependencies_are_pinned(self) -> None:
         requirements = set(
@@ -216,7 +216,7 @@ class WindowsPackagingTests(unittest.TestCase):
         manifest = tomllib.loads(
             (PACKAGING_ROOT / "third_party_sources.toml").read_text("utf-8")
         )
-        self.assertEqual(manifest["release"]["version"], "0.2.1")
+        self.assertEqual(manifest["release"]["version"], "0.2.2")
         entries = manifest["source"]
         filenames = [entry["filename"] for entry in entries]
         self.assertEqual(len(filenames), len(set(filenames)))

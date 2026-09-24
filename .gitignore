@@ -18,6 +18,8 @@ config/*secret*.yaml
 # Test and local validation caches
 /.pytest_cache/
 /tmp/
+# Generated documentation/release outputs are published as release assets.
+/output/
 
 # Local Moltage application state if copied into the repository
 /server_profiles.json

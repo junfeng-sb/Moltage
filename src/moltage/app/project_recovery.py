@@ -84,7 +84,10 @@ from moltage.orca.evidence import (
     parse_orca_optimization_output,
 )
 from moltage.orca.input_writer import parse_rendered_orca_structure
-from moltage.orca.project_evidence import OrcaOptimizationResultEvidence
+from moltage.orca.project_evidence import (
+    OrcaOptimizationOrigin,
+    OrcaOptimizationResultEvidence,
+)
 from moltage.orca.wbl import WblSpinTreatment
 from moltage.orca.wbl_artifacts import (
     WBL_CSV_FILENAME,
@@ -134,6 +137,7 @@ from moltage.remote.slurm_status import (
     query_slurm_job_status,
     validate_job_id,
 )
+from moltage.remote.step_inputs import remote_file_sha256
 from moltage.structure.connectivity import infer_connectivity
 
 
@@ -1462,9 +1466,24 @@ class ProjectRecoveryService:
         elif parsed is not None and not parsed.optimization_converged:
             diagnostic = "ORCA optimization convergence was not confirmed"
         diagnostic = diagnostic or xyz_diagnostic
-        gbw = _read_optional_remote_bytes(executor, str(root / "orca_opt.gbw"))
+        # Refresh needs only availability and provenance, not the wavefunction
+        # payload. Hash it on the server so file size cannot dominate SSH I/O.
+        gbw_path = str(root / "orca_opt.gbw")
+        gbw_digest = (
+            remote_file_sha256(executor, gbw_path)
+            if _remote_nonempty(executor, gbw_path)
+            else None
+        )
+        origin = (
+            step.orca_optimization_result.origin
+            if step.orca_optimization_result is not None
+            else OrcaOptimizationOrigin.MOLTAGE_SUBMITTED
+        )
+        imported = origin is OrcaOptimizationOrigin.IMPORTED_EXTERNAL
         evidence = OrcaOptimizationResultEvidence(
-            scheduler_succeeded=True,
+            # An imported directory carries no Moltage scheduler observation, so
+            # its success rests only on ORCA's own reviewed output evidence.
+            scheduler_succeeded=not imported,
             normal_termination=bool(parsed and parsed.normal_termination),
             optimization_converged=bool(
                 parsed
@@ -1472,11 +1491,12 @@ class ProjectRecoveryService:
                 and not parsed.explicit_nonconvergence
             ),
             final_xyz_valid=optimized is not None,
-            wbl_input_ready=bool(gbw),
+            wbl_input_ready=gbw_digest is not None,
             output_sha256=(hashlib.sha256(output).hexdigest() if output else None),
             xyz_sha256=(hashlib.sha256(xyz_bytes).hexdigest() if optimized is not None else None),
-            gbw_sha256=(hashlib.sha256(gbw).hexdigest() if gbw else None),
+            gbw_sha256=gbw_digest,
             diagnostic=diagnostic,
+            origin=origin,
         )
         if parsed is not None and parsed.explicit_nonconvergence:
             state = ProjectStepState.FAILED
@@ -1487,7 +1507,9 @@ class ProjectRecoveryService:
         changed = replace(
             step,
             state=state,
-            scheduler_state=step.scheduler_state or "COMPLETED",
+            scheduler_state=(
+                step.scheduler_state if imported else step.scheduler_state or "COMPLETED"
+            ),
             finished_at=step.finished_at or _aware_now(self._now_factory),
             last_error=diagnostic,
             orca_optimization_result=evidence,

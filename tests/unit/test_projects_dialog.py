@@ -69,7 +69,22 @@ from moltage.domain.calculation_project import (
     CalculationWorkflowKind,
     ProjectStepKind,
     ProjectStepState,
+    append_orca_frequency_step,
+    append_orca_wbl_step,
+    begin_orca_wbl_step,
+    fail_orca_wbl_step,
 )
+from moltage.orca.project_evidence import OrcaOptimizationResultEvidence
+from moltage.orca.wbl import (
+    WBL_MODEL_CLASSIFICATION,
+    WBL_MODEL_ID,
+    OrcaWblContactSettings,
+    OrcaWblResultEvidence,
+    OrcaWblSettings,
+    WblLinkerKind,
+    WblParameterStatus,
+)
+from moltage.structure.connectivity import DEFAULT_CONNECTIVITY_MULTIPLIER
 from moltage.domain.connectivity import Connectivity
 from moltage.domain.server_profile import runtime_hours_from_minutes
 from moltage.domain.structure import Atom, MolecularStructure
@@ -692,10 +707,174 @@ class CalculationProjectsDialogTests(unittest.TestCase):
 
         self.assertFalse(dialog._resubmit_orca.isHidden())
         self.assertTrue(dialog._resubmit_orca.isEnabled())
+        self.assertEqual(dialog._resubmit_orca.text(), "Resubmit Optimization...")
+        self.assertIn("new project", dialog._resubmit_orca.toolTip())
         self.assertFalse(dialog._view_orca_wbl.isEnabled())
         dialog._resubmit_orca.click()
 
         self.assertEqual(requests, [(snapshot, profile, structure)])
+        dialog.reject()
+
+    def _orca_step2_snapshot(self, wbl_state):
+        """One verified ORCA optimization whose current step is Step 2."""
+
+        profile = configured_orca_profile()
+        project = create_initial_project(
+            base_name="SyntheticOrcaStep2",
+            remote_directory_name="SyntheticOrcaStep2.20300102",
+            source_molecule_name="synthetic.xyz",
+            server_profile_id=profile.profile_id,
+            remote_project_root=profile.remote_project_root,
+            starting_step=ProjectStepKind.ORCA_OPTIMIZATION,
+            workflow_kind=CalculationWorkflowKind.ORCA,
+            now=ORCA_NOW,
+        )
+        structure = synthetic_orca_structure()
+        optimization = replace(
+            project.steps[0],
+            state=ProjectStepState.SUCCEEDED,
+            job_id="90005",
+            submitted_at=ORCA_NOW,
+            finished_at=ORCA_NOW,
+            scheduler_state="COMPLETED",
+            orca_optimization_settings=orca_settings(),
+            orca_optimization_result=OrcaOptimizationResultEvidence(
+                scheduler_succeeded=True,
+                normal_termination=True,
+                optimization_converged=True,
+                final_xyz_valid=True,
+                wbl_input_ready=True,
+                gbw_sha256="a" * 64,
+            ),
+            orca_submitted_elements=tuple(atom.element for atom in structure),
+        )
+        project = replace(project, steps=(optimization,))
+        wbl_settings = OrcaWblSettings(
+            OrcaWblContactSettings(0, WblLinkerKind.SH, 0.2, WblParameterStatus.HYPOTHESIS),
+            OrcaWblContactSettings(1, WblLinkerKind.SH, 0.2, WblParameterStatus.HYPOTHESIS),
+            -5.0,
+            -2.0,
+            2.0,
+            0.2,
+            DEFAULT_CONNECTIVITY_MULTIPLIER,
+        )
+        if wbl_state is ProjectStepState.SUCCEEDED:
+            project = append_orca_wbl_step(
+                project,
+                settings=wbl_settings,
+                result=OrcaWblResultEvidence(
+                    WBL_MODEL_ID,
+                    WBL_MODEL_CLASSIFICATION,
+                    "a" * 64,
+                    "b" * 64,
+                    (("orca_wbl_result.json", "c" * 64),),
+                    "/apps/example/orca-6.1/orca_2json",
+                    0.1,
+                    0.2,
+                    0.3,
+                    ((1, 0.1),),
+                    ((2, 0.2),),
+                ),
+                input_hashes=(("orca_opt.gbw", "a" * 64),),
+                finished_at=ORCA_NOW,
+            )
+        else:
+            project = begin_orca_wbl_step(
+                project, settings=wbl_settings, started_at=ORCA_NOW
+            )
+        if wbl_state is ProjectStepState.FAILED:
+            project = fail_orca_wbl_step(
+                project,
+                diagnostic="synthetic conversion failure",
+                finished_at=ORCA_NOW,
+            )
+        snapshot = ProjectRecoverySnapshot(
+            project,
+            ProjectStepKind.ORCA_WBL_TRANSMISSION,
+            "Synthetic ORCA Step 2 state.",
+            optimized_structure=structure,
+            submitted_structure=structure,
+        )
+        return profile, snapshot
+
+    def _orca_dialog(self, profile, snapshot):
+        dialog = CalculationProjectsDialog(
+            (profile,),
+            profile.profile_id,
+            FakeRecoveryService(ProjectDiscoveryResult((snapshot,), ())),
+            MemorySecretStore(),
+            FakeKnownHosts(),
+            orca_wbl_service=object(),
+        )
+        dialog._snapshots = (snapshot,)
+        dialog._render_snapshots()
+        return dialog
+
+    def test_orca_resubmit_reruns_a_failed_step_2_instead_of_reoptimizing(self):
+        profile, snapshot = self._orca_step2_snapshot(ProjectStepState.FAILED)
+        dialog = self._orca_dialog(profile, snapshot)
+        wbl_requests = []
+        optimization_requests = []
+        dialog.orca_wbl_resubmit_requested.connect(wbl_requests.append)
+        dialog.orca_optimization_resubmit_requested.connect(
+            optimization_requests.append
+        )
+
+        self.assertEqual(dialog._resubmit_orca.text(), "Resubmit Step 2 (WBL)...")
+        self.assertTrue(dialog._resubmit_orca.isEnabled())
+        self.assertIn("optimization is reused", dialog._resubmit_orca.toolTip())
+        dialog._resubmit_orca.click()
+
+        self.assertEqual(wbl_requests, [(snapshot, profile)])
+        self.assertEqual(optimization_requests, [])
+        dialog.reject()
+
+    def test_orca_resubmit_never_falls_back_to_reoptimizing_a_later_step(self):
+        for state, reason in (
+            (ProjectStepState.RUNNING, "Wait for Step 2 to finish"),
+        ):
+            with self.subTest(state=state):
+                profile, snapshot = self._orca_step2_snapshot(state)
+                dialog = self._orca_dialog(profile, snapshot)
+                self.assertEqual(
+                    dialog._resubmit_orca.text(), "Resubmit Step 2 (WBL)..."
+                )
+                self.assertFalse(dialog._resubmit_orca.isEnabled())
+                self.assertIn(reason, dialog._resubmit_orca.toolTip())
+                dialog.reject()
+
+        profile, snapshot = self._orca_step2_snapshot(ProjectStepState.SUCCEEDED)
+        dialog = self._orca_dialog(profile, snapshot)
+        wbl_requests = []
+        optimization_requests = []
+        dialog.orca_wbl_resubmit_requested.connect(wbl_requests.append)
+        dialog.orca_optimization_resubmit_requested.connect(optimization_requests.append)
+        self.assertTrue(dialog._resubmit_orca.isEnabled())
+        dialog._resubmit_orca.click()
+        self.assertEqual(wbl_requests, [(snapshot, profile)])
+        self.assertEqual(optimization_requests, [])
+        dialog.reject()
+        project = append_orca_frequency_step(snapshot.project)
+        project = replace(
+            project,
+            steps=(
+                *project.steps[:2],
+                replace(
+                    project.steps[2],
+                    state=ProjectStepState.FAILED,
+                    last_error="synthetic frequency failure",
+                ),
+            ),
+        )
+        frequency = replace(
+            snapshot,
+            project=project,
+            active_step_kind=ProjectStepKind.ORCA_FREQUENCY,
+        )
+        dialog = self._orca_dialog(profile, frequency)
+        self.assertEqual(dialog._resubmit_orca.text(), "Resubmit Frequency...")
+        self.assertFalse(dialog._resubmit_orca.isEnabled())
+        self.assertIn("not supported yet", dialog._resubmit_orca.toolTip())
         dialog.reject()
 
     def test_pm_r1_default_controls_and_date_order_are_exact(self):

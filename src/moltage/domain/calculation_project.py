@@ -11,7 +11,11 @@ import re
 from moltage.domain.scheduler import SchedulerKind
 from moltage.domain.server_profile import OrcaRuntimeConfiguration
 from moltage.orca.evidence import OrcaFrequencyEvidence
-from moltage.orca.project_evidence import OrcaOptimizationResultEvidence
+from moltage.orca.project_evidence import (
+    OrcaImportProvenance,
+    OrcaOptimizationOrigin,
+    OrcaOptimizationResultEvidence,
+)
 from moltage.orca.settings import OrcaFrequencySettings, OrcaOptimizationSettings
 from moltage.orca.wbl import OrcaWblResultEvidence, OrcaWblSettings
 from moltage.domain.au_pyramid import (
@@ -22,8 +26,8 @@ from moltage.domain.au_pyramid import (
 )
 
 
-PROJECT_SCHEMA_VERSION = 10
-LEGACY_PROJECT_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9)
+PROJECT_SCHEMA_VERSION = 12
+LEGACY_PROJECT_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 MANAGED_METADATA_DIRECTORY = ".moltage"
 LEGACY_MANAGED_METADATA_DIRECTORIES = (".aims_transport",)
 
@@ -484,6 +488,7 @@ class ProjectStepRecord:
     orca_wbl_settings: OrcaWblSettings | None = None
     orca_wbl_result: OrcaWblResultEvidence | None = None
     orca_submitted_elements: tuple[str, ...] = ()
+    orca_import_provenance: OrcaImportProvenance | None = None
 
     def __post_init__(self) -> None:
         if self.scheduler_kind is not None:
@@ -557,6 +562,7 @@ class ProjectStepRecord:
             self.orca_frequency_result,
             self.orca_wbl_settings,
             self.orca_wbl_result,
+            self.orca_import_provenance,
         )
         if self.kind not in {
             ProjectStepKind.ORCA_OPTIMIZATION,
@@ -591,6 +597,14 @@ class ProjectStepRecord:
                     "ORCA submitted elements must be ordered element symbols"
                 )
             object.__setattr__(self, "orca_submitted_elements", elements)
+            _validate_orca_optimization_origin(
+                self.orca_optimization_result,
+                self.orca_import_provenance,
+                job_id=self.job_id,
+                scheduler_kind=self.scheduler_kind,
+                submit_script_filename=self.submit_script_filename,
+                slurm_output_filename=self.slurm_output_filename,
+            )
         if self.kind is ProjectStepKind.ORCA_FREQUENCY:
             if (
                 self.orca_optimization_settings is not None
@@ -604,6 +618,10 @@ class ProjectStepRecord:
             if self.orca_submitted_elements:
                 raise CalculationProjectValidationError(
                     "submitted element identity is stored on ORCA optimization"
+                )
+            if self.orca_import_provenance is not None:
+                raise CalculationProjectValidationError(
+                    "import provenance is stored on the ORCA optimization stage"
                 )
         if self.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION:
             if any(
@@ -621,6 +639,10 @@ class ProjectStepRecord:
             if self.orca_submitted_elements:
                 raise CalculationProjectValidationError(
                     "submitted element identity is stored on ORCA optimization"
+                )
+            if self.orca_import_provenance is not None:
+                raise CalculationProjectValidationError(
+                    "import provenance is stored on the ORCA optimization stage"
                 )
             if self.job_id is not None or self.scheduler_kind is not None:
                 raise CalculationProjectValidationError(
@@ -866,6 +888,46 @@ class CalculationProject:
                 )
 
 
+def _validate_orca_optimization_origin(
+    result: OrcaOptimizationResultEvidence | None,
+    provenance: OrcaImportProvenance | None,
+    *,
+    job_id: str | None,
+    scheduler_kind: SchedulerKind | None,
+    submit_script_filename: str | None,
+    slurm_output_filename: str | None,
+) -> None:
+    """Keep imported optimizations free of any fabricated submission identity."""
+
+    if provenance is not None and not isinstance(provenance, OrcaImportProvenance):
+        raise CalculationProjectValidationError(
+            "ORCA import provenance must be an OrcaImportProvenance record"
+        )
+    imported = (
+        result is not None
+        and result.origin is OrcaOptimizationOrigin.IMPORTED_EXTERNAL
+    )
+    if imported and provenance is None:
+        raise CalculationProjectValidationError(
+            "imported ORCA optimization requires import provenance"
+        )
+    if provenance is not None and not imported:
+        raise CalculationProjectValidationError(
+            "ORCA import provenance requires imported optimization evidence"
+        )
+    if not imported:
+        return
+    if (
+        job_id is not None
+        or scheduler_kind is not None
+        or submit_script_filename is not None
+        or slurm_output_filename is not None
+    ):
+        raise CalculationProjectValidationError(
+            "imported ORCA optimization must not carry a scheduler job identity"
+        )
+
+
 def initial_step_records(
     starting_step: ProjectStepKind,
     workflow_kind: CalculationWorkflowKind = CalculationWorkflowKind.FHI_AIMS_AITRANSS,
@@ -976,6 +1038,20 @@ def append_orca_wbl_step(
     return replace(project, steps=tuple(steps))
 
 
+def orca_wbl_stage_blocks_new_run(project: CalculationProject) -> bool:
+    """Whether an existing WBL stage forbids starting another analysis.
+
+    Terminal stages may be rerun explicitly. The application service separately
+    requires current-result authorization before replacing successful results.
+    """
+
+    return any(
+        step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION
+        and step.state not in {ProjectStepState.FAILED, ProjectStepState.SUCCEEDED}
+        for step in project.steps
+    )
+
+
 def begin_orca_wbl_step(
     project: CalculationProject,
     *,
@@ -986,7 +1062,7 @@ def begin_orca_wbl_step(
 
     if project.workflow_kind is not CalculationWorkflowKind.ORCA:
         raise CalculationProjectValidationError("WBL can be added only to an ORCA project")
-    if any(step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION for step in project.steps):
+    if orca_wbl_stage_blocks_new_run(project):
         raise CalculationProjectValidationError("ORCA WBL stage already exists")
     optimization = project.steps[0]
     if (
@@ -1009,7 +1085,18 @@ def begin_orca_wbl_step(
         orca_wbl_settings=settings,
     )
     steps = list(project.steps)
-    steps.insert(1, stage)
+    previous = next(
+        (
+            index
+            for index, step in enumerate(steps)
+            if step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION
+        ),
+        None,
+    )
+    if previous is None:
+        steps.insert(1, stage)
+    else:
+        steps[previous] = stage
     return replace(project, steps=tuple(steps))
 
 

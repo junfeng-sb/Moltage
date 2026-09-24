@@ -37,6 +37,7 @@ from moltage.app.server_profiles import (
 )
 from moltage.domain.server_profile import (
     AitranssRuntimeConfiguration,
+    OrcaRuntimeConfiguration,
     ServerProfile,
     SlurmExecutionPreset,
 )
@@ -117,6 +118,10 @@ class ServerProfilesDialog(QDialog):
         self._editing_execution_preset: SlurmExecutionPreset | None = None
         self._editing_aitranss_runtime: AitranssRuntimeConfiguration | None = None
         self._editing_runtime_hints = None
+        # The validated ORCA runtime is owned by Cluster Execution Settings;
+        # saving connection fields must carry it forward like the FHI-aims
+        # runtime inside the execution preset.
+        self._editing_orca_runtime: OrcaRuntimeConfiguration | None = None
         self._editing_email_notification_enabled = False
         self._editing_email_notification_recipient: str | None = None
         self._thread_pool = QThreadPool(self)
@@ -288,6 +293,7 @@ class ServerProfilesDialog(QDialog):
         self._editing_execution_preset = profile.execution_preset
         self._editing_aitranss_runtime = profile.aitranss_runtime
         self._editing_runtime_hints = profile.runtime_hints
+        self._editing_orca_runtime = profile.orca_runtime
         self._editing_email_notification_enabled = (
             profile.email_notification_enabled
         )
@@ -316,6 +322,7 @@ class ServerProfilesDialog(QDialog):
         self._editing_execution_preset = None
         self._editing_aitranss_runtime = None
         self._editing_runtime_hints = None
+        self._editing_orca_runtime = None
         self._editing_email_notification_enabled = False
         self._editing_email_notification_recipient = None
         for field in (
@@ -787,6 +794,7 @@ class ServerProfilesDialog(QDialog):
             execution_preset=self._editing_execution_preset,
             aitranss_runtime=self._editing_aitranss_runtime,
             runtime_hints=self._editing_runtime_hints,
+            orca_runtime=self._editing_orca_runtime,
             email_notification_enabled=(
                 self._editing_email_notification_enabled
             ),

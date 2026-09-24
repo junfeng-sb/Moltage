@@ -31,7 +31,10 @@ from moltage.orca.evidence import (
     parse_orca_optimization_output,
 )
 from moltage.orca.input_writer import parse_rendered_orca_structure
-from moltage.orca.project_evidence import OrcaOptimizationResultEvidence
+from moltage.orca.project_evidence import (
+    OrcaOptimizationOrigin,
+    OrcaOptimizationResultEvidence,
+)
 from moltage.remote.executor import RemotePathNotFoundError
 from moltage.remote.project_repository import RemoteProjectRepository
 from moltage.remote.slurm_cancel import request_slurm_cancellation_once
@@ -90,7 +93,7 @@ class OrcaRecoveryService:
                 raise OrcaRecoveryError("Confirm this server profile before refreshing the ORCA project")
             step = _active_step(project)
             if step.job_id is None:
-                return _snapshot(project, "ORCA stage has not been submitted")
+                return _snapshot(project, _unsubmitted_stage_message(step))
             report("Querying scheduler status...")
             preset = profile.execution_preset
             if preset is None:
@@ -371,6 +374,21 @@ def _active_step(project):
         if step.state is not ProjectStepState.NOT_STARTED:
             return step
     return project.steps[0]
+
+
+def _unsubmitted_stage_message(step) -> str:
+    """Distinguish an imported optimization from an unsubmitted Moltage stage."""
+
+    result = step.orca_optimization_result
+    if (
+        result is not None
+        and result.origin is OrcaOptimizationOrigin.IMPORTED_EXTERNAL
+    ):
+        return (
+            "ORCA optimization was imported from an existing server directory; "
+            "Moltage submitted no scheduler job for it"
+        )
+    return "ORCA stage has not been submitted"
 
 
 def _read_required(executor, path, label):

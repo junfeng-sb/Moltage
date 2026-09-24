@@ -111,6 +111,7 @@ from moltage.domain.calculation_project import (
     CalculationWorkflowKind,
     ProjectStepKind,
     ProjectStepState,
+    orca_wbl_stage_blocks_new_run,
 )
 from moltage.domain.scheduler import SchedulerKind, scheduler_display_name
 from moltage.domain.server_profile import ServerProfile
@@ -142,6 +143,8 @@ from moltage.gui.workspace_tabs import (
     OrcaWblWorkspaceRequest,
     TransmissionWorkspaceRequest,
 )
+from moltage.orca.project_evidence import OrcaOptimizationOrigin
+from moltage.orca.wbl import OrcaWblSettings
 from moltage.orca.wbl_artifacts import wbl_presentation_from_result
 from moltage.remote.executor import (
     RemoteExecutorError,
@@ -156,6 +159,8 @@ from moltage.remote.known_hosts import (
     UnknownHostKey,
 )
 from moltage.remote.secrets import SecretStore
+from moltage.structure.connectivity import infer_connectivity
+from moltage.structure.covalent_radii import load_default_covalent_radii
 from moltage.remote.slurm_discovery import (
     SlurmConfigurationError,
     SlurmDiscoveryError,
@@ -504,6 +509,7 @@ class CalculationProjectsDialog(QDialog):
     orca_wbl_workspace_requested = Signal(object)
     orca_wbl_operation_status = Signal(object, str)
     orca_optimization_resubmit_requested = Signal(object)
+    orca_wbl_resubmit_requested = Signal(object)
 
     def __init__(
         self,
@@ -581,6 +587,7 @@ class CalculationProjectsDialog(QDialog):
         self._restart_suppressed_attempts: set[tuple[UUID, str]] = set()
         self._density_cancel_suppressed_attempts: set[tuple[UUID, str]] = set()
         self._pending_orca_wbl_snapshot: ProjectRecoverySnapshot | None = None
+        self._previous_orca_wbl_snapshot: ProjectRecoverySnapshot | None = None
         self._pending_orca_wbl_profile: ServerProfile | None = None
 
         self.setWindowTitle("Calculation Projects")
@@ -1392,6 +1399,7 @@ class CalculationProjectsDialog(QDialog):
         snapshot: ProjectRecoverySnapshot,
         profile: ServerProfile,
         *,
+        connectivity_multiplier: float,
         contact_atom_selector: Callable[[str], int | None] | None = None,
     ) -> None:
         """Start WBL from a recovered ORCA Geometry workspace."""
@@ -1407,19 +1415,32 @@ class CalculationProjectsDialog(QDialog):
             return
         assert snapshot is not None and snapshot.optimized_structure is not None
         dialog_parent = self._interactive_operation_parent()
-        if snapshot.connectivity is None:
-            self._show_error(
-                RuntimeError(
-                    "ORCA WBL contact detection requires recovered molecular connectivity"
-                )
-            )
-            return
+        previous_result = next(
+            (
+                step.orca_wbl_result
+                for step in snapshot.project.steps
+                if step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION
+                and step.state is ProjectStepState.SUCCEEDED
+            ),
+            None,
+        )
         try:
+            # Contact detection, the automatic projection direction and the
+            # calculation itself all follow the session bond threshold factor,
+            # so the bonds the user reviewed are the bonds WBL interprets.
+            connectivity = infer_connectivity(
+                snapshot.optimized_structure,
+                load_default_covalent_radii(),
+                multiplier=connectivity_multiplier,
+            )
             dialog = OrcaWblSettingsDialog(
                 snapshot.optimized_structure,
-                snapshot.connectivity,
+                connectivity,
                 dialog_parent,
+                connectivity_multiplier=connectivity_multiplier,
                 contact_atom_selector=contact_atom_selector,
+                initial_settings=_previous_orca_wbl_settings(snapshot),
+                replacing_result=previous_result is not None,
             )
         except Exception as error:
             self._show_error(error)
@@ -1445,6 +1466,7 @@ class CalculationProjectsDialog(QDialog):
             snapshot.project.remote_project_path,
             settings,
             password,
+            replace_existing_result=previous_result,
         )
         worker = OrcaWblWorker(self._orca_wbl_service, request)
         worker.signals.progress.connect(self._orca_wbl_progress)
@@ -1453,6 +1475,7 @@ class CalculationProjectsDialog(QDialog):
         worker.signals.failed.connect(self._orca_wbl_failed)
         worker.signals.finished.connect(self._orca_wbl_finished)
         self._pending_orca_wbl_snapshot = snapshot
+        self._previous_orca_wbl_snapshot = snapshot
         self._pending_orca_wbl_profile = profile
         self._workers.add(worker)
         self._busy = True
@@ -1505,11 +1528,19 @@ class CalculationProjectsDialog(QDialog):
             message = step.last_error or "ORCA WBL transmission failed."
         else:
             return
+        previous = self._previous_orca_wbl_snapshot
+        restored_presentation = None
+        if previous is not None and step.state is ProjectStepState.SUCCEEDED and step in previous.project.steps:
+            message = "Previous WBL result restored after unsuccessful recalculation."
+            restored_presentation = previous.orca_wbl_presentation
         updated = replace(
             snapshot,
             project=project,
             active_step_kind=ProjectStepKind.ORCA_WBL_TRANSMISSION,
             status_message=message,
+            # A RUNNING or newly committed result must not inherit a chart
+            # from the previous result under its new evidence identity.
+            orca_wbl_presentation=restored_presentation,
         )
         self._pending_orca_wbl_snapshot = updated
         self._replace_snapshot(updated)
@@ -1569,6 +1600,7 @@ class CalculationProjectsDialog(QDialog):
             status_message=(
                 "ORCA WBL transmission completed and provenance artifacts were "
                 "saved (HYPOTHESIS)."
+                + (f" {result.cleanup_warning}" if result.cleanup_warning else "")
             ),
             orca_wbl_presentation=presentation,
         )
@@ -1578,6 +1610,12 @@ class CalculationProjectsDialog(QDialog):
         self.orca_wbl_workspace_requested.emit(
             OrcaWblWorkspaceRequest.from_snapshot(updated)
         )
+        if result.cleanup_warning:
+            QMessageBox.warning(
+                self._interactive_operation_parent(),
+                "WBL completed — follow-up needed",
+                result.cleanup_warning,
+            )
 
     @Slot(object)
     def _orca_wbl_failed(self, error: object) -> None:
@@ -1599,6 +1637,7 @@ class CalculationProjectsDialog(QDialog):
             return
         self._busy = False
         self._pending_orca_wbl_snapshot = None
+        self._previous_orca_wbl_snapshot = None
         self._pending_orca_wbl_profile = None
         self._hide_busy_progress()
         self._update_controls()
@@ -1619,6 +1658,13 @@ class CalculationProjectsDialog(QDialog):
         ):
             return
         assert snapshot is not None
+        if _orca_resubmit_step(snapshot) is ProjectStepKind.ORCA_WBL_TRANSMISSION:
+            if self._orca_wbl_service is None:
+                return
+            self.orca_wbl_resubmit_requested.emit(
+                (snapshot, self._current_profile())
+            )
+            return
         structure = snapshot.optimized_structure or snapshot.submitted_structure
         assert structure is not None
         self.orca_optimization_resubmit_requested.emit(
@@ -3157,10 +3203,24 @@ class CalculationProjectsDialog(QDialog):
             and snapshot is not None
             and snapshot.project.workflow_kind is CalculationWorkflowKind.ORCA
         )
-        self._resubmit_orca.setVisible(orca_selected)
-        self._resubmit_orca.setEnabled(
-            not self._busy and _orca_resubmit_eligible(snapshot)
+        resubmit_step = _orca_resubmit_step(snapshot)
+        resubmit_block = _orca_resubmit_block_reason(snapshot)
+        if (
+            resubmit_step is ProjectStepKind.ORCA_WBL_TRANSMISSION
+            and resubmit_block is None
+            and self._orca_wbl_service is None
+        ):
+            resubmit_block = "ORCA WBL analysis is unavailable in this window."
+        self._resubmit_orca.setText(
+            _ORCA_RESUBMIT_LABELS.get(resubmit_step, "Resubmit Optimization...")
         )
+        self._resubmit_orca.setToolTip(
+            resubmit_block
+            if resubmit_block is not None
+            else _ORCA_RESUBMIT_DESCRIPTIONS.get(resubmit_step, "")
+        )
+        self._resubmit_orca.setVisible(orca_selected)
+        self._resubmit_orca.setEnabled(not self._busy and resubmit_block is None)
         self._view_orca_wbl.setVisible(orca_selected)
         self._view_orca_wbl.setEnabled(
             not self._busy
@@ -3554,23 +3614,100 @@ def _orca_wbl_eligible(
         and evidence.succeeded
         and evidence.wbl_input_ready
         and evidence.gbw_sha256 is not None
-        and not any(
-            step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION
-            for step in snapshot.project.steps
-        )
+        and not orca_wbl_stage_blocks_new_run(snapshot.project)
     )
+
+
+_ORCA_RESUBMIT_LABELS = {
+    ProjectStepKind.ORCA_OPTIMIZATION: "Resubmit Optimization...",
+    ProjectStepKind.ORCA_WBL_TRANSMISSION: "Resubmit Step 2 (WBL)...",
+    ProjectStepKind.ORCA_FREQUENCY: "Resubmit Frequency...",
+}
+
+_ORCA_RESUBMIT_DESCRIPTIONS = {
+    ProjectStepKind.ORCA_OPTIMIZATION: (
+        "Creates a new project and reruns the ORCA geometry optimization."
+    ),
+    ProjectStepKind.ORCA_WBL_TRANSMISSION: (
+        "Reruns Step 2 in this project from the previous WBL settings; the "
+        "completed optimization is reused. Successful recalculation replaces "
+        "the previous WBL result."
+    ),
+}
+
+
+def _orca_resubmit_step(
+    snapshot: ProjectRecoverySnapshot | None,
+) -> ProjectStepKind | None:
+    """Return the ORCA step Resubmit acts on: always the project's current step.
+
+    Resubmitting a later step must never recompute earlier, completed ones.
+    """
+
+    if (
+        snapshot is None
+        or snapshot.project.workflow_kind is not CalculationWorkflowKind.ORCA
+    ):
+        return None
+    return snapshot.active_step_kind
+
+
+def _orca_resubmit_block_reason(
+    snapshot: ProjectRecoverySnapshot | None,
+) -> str | None:
+    """Explain why the current ORCA step cannot be resubmitted, if it cannot."""
+
+    step = _orca_resubmit_step(snapshot)
+    if step is None:
+        return "Select an ORCA project."
+    assert snapshot is not None
+    if step is ProjectStepKind.ORCA_OPTIMIZATION:
+        optimization = snapshot.project.steps[0]
+        result = optimization.orca_optimization_result
+        if (
+            result is not None
+            and result.origin is OrcaOptimizationOrigin.IMPORTED_EXTERNAL
+        ):
+            # Moltage never submitted an imported optimization and does not hold
+            # a reproducible submission for it, so it must not offer to resubmit.
+            return (
+                "Moltage did not submit this imported optimization, so it "
+                "cannot resubmit it."
+            )
+        if optimization.orca_optimization_settings is None or (
+            snapshot.optimized_structure is None
+            and snapshot.submitted_structure is None
+        ):
+            return "The optimization settings or structure are unavailable."
+        return None
+    if step is ProjectStepKind.ORCA_WBL_TRANSMISSION:
+        state = snapshot.active_step.state
+        if state not in {ProjectStepState.SUCCEEDED, ProjectStepState.FAILED}:
+            return "Wait for Step 2 to finish before resubmitting."
+        if not _orca_wbl_eligible(snapshot):
+            return "Step 2 needs the verified optimization and GBW evidence."
+        return None
+    return "Resubmitting the frequency step is not supported yet."
 
 
 def _orca_resubmit_eligible(
     snapshot: ProjectRecoverySnapshot | None,
 ) -> bool:
-    return bool(
-        snapshot is not None
-        and snapshot.project.workflow_kind is CalculationWorkflowKind.ORCA
-        and snapshot.project.steps[0].kind is ProjectStepKind.ORCA_OPTIMIZATION
-        and snapshot.project.steps[0].orca_optimization_settings is not None
-        and (snapshot.optimized_structure is not None or snapshot.submitted_structure is not None)
-    )
+    return _orca_resubmit_block_reason(snapshot) is None
+
+
+def _previous_orca_wbl_settings(
+    snapshot: ProjectRecoverySnapshot,
+) -> OrcaWblSettings | None:
+    """Prefill a finished Step 2's settings for an explicitly requested rerun."""
+
+    for step in snapshot.project.steps:
+        if (
+            step.kind is ProjectStepKind.ORCA_WBL_TRANSMISSION
+            and step.state in {ProjectStepState.SUCCEEDED, ProjectStepState.FAILED}
+        ):
+            return step.orca_wbl_settings
+    return None
 
 
 def project_list_text(snapshot: ProjectRecoverySnapshot) -> str:
@@ -3633,9 +3770,15 @@ def _orca_project_list_text(snapshot: ProjectRecoverySnapshot) -> str:
         ProjectStepKind.ORCA_WBL_TRANSMISSION: "ORCA WBL transmission",
         ProjectStepKind.ORCA_FREQUENCY: "ORCA frequency",
     }[step.kind]
+    imported = (
+        step.kind is ProjectStepKind.ORCA_OPTIMIZATION
+        and step.orca_optimization_result is not None
+        and step.orca_optimization_result.origin
+        is OrcaOptimizationOrigin.IMPORTED_EXTERNAL
+    )
     lines = [
         snapshot.project.remote_directory_name,
-        f"{stage} — {step.state.value}",
+        f"{stage} — {step.state.value}" + (" (imported)" if imported else ""),
     ]
     if step.job_id is not None:
         scheduler = scheduler_display_name(step.scheduler_kind or SchedulerKind.SLURM)

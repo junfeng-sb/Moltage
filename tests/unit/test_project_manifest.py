@@ -38,7 +38,7 @@ class ProjectManifestTests(unittest.TestCase):
     def test_initial_manifest_has_revision_one_and_no_inputs_or_secrets(self) -> None:
         text = serialize_project_manifest(example_project())
         raw = json.loads(text)
-        self.assertEqual(raw["schema_version"], 10)
+        self.assertEqual(raw["schema_version"], 12)
         self.assertEqual(raw["starting_step"], "MOLECULE_AU_OPT")
         self.assertEqual(raw["electrode_provenance"], [])
         self.assertIsNone(raw["restart_provenance"])
@@ -58,7 +58,7 @@ class ProjectManifestTests(unittest.TestCase):
 
     def test_newer_schema_and_changed_step_folder_fail_explicitly(self) -> None:
         raw = json.loads(serialize_project_manifest(example_project()))
-        raw["schema_version"] = 11
+        raw["schema_version"] = 13
         with self.assertRaisesRegex(
             ManagedProjectManifestError,
             "unsupported project manifest schema",
@@ -98,7 +98,7 @@ class ProjectManifestTests(unittest.TestCase):
         migrated = parse_project_manifest(json.dumps(raw))
 
         self.assertEqual(migrated, project)
-        self.assertEqual(migrated.schema_version, 10)
+        self.assertEqual(migrated.schema_version, 12)
         self.assertIsNone(migrated.restart_provenance)
 
     def test_step3_attempt_provenance_round_trips(self) -> None:
@@ -152,7 +152,7 @@ class ProjectManifestTests(unittest.TestCase):
 
         migrated = parse_project_manifest(json.dumps(raw))
 
-        self.assertEqual(migrated.schema_version, 10)
+        self.assertEqual(migrated.schema_version, 12)
         self.assertEqual(migrated.steps[3].attempts[0].input_hashes, ())
 
     def test_direct_step3_provenance_round_trips_without_fake_success(self) -> None:
@@ -205,7 +205,7 @@ class ProjectManifestTests(unittest.TestCase):
         text = serialize_project_manifest(project)
         raw = json.loads(text)
 
-        self.assertEqual(raw["schema_version"], 10)
+        self.assertEqual(raw["schema_version"], 12)
         self.assertEqual(raw["restart_provenance"]["source_job_id"], "44001")
         self.assertEqual(
             tuple(item["roll_degrees"] for item in raw["electrode_provenance"]),
@@ -218,7 +218,7 @@ class ProjectManifestTests(unittest.TestCase):
 
         migrated = parse_project_manifest(json.dumps(raw))
 
-        self.assertEqual(migrated.schema_version, 10)
+        self.assertEqual(migrated.schema_version, 12)
         self.assertEqual(
             tuple(item.geometry_model for item in migrated.electrode_provenance),
             ("LegacyAu59V1", "LegacyAu59V1"),
@@ -303,7 +303,7 @@ class ProjectManifestTests(unittest.TestCase):
         raw = json.loads(text)
         left, right = raw["electrode_provenance"]
 
-        self.assertEqual(raw["schema_version"], 10)
+        self.assertEqual(raw["schema_version"], 12)
         self.assertEqual(
             tuple(item["origin"] for item in left["lattice_extensions"]),
             ("LATTICE_EXTENSION", "LATTICE_EXTENSION"),
@@ -343,7 +343,7 @@ class ProjectManifestTests(unittest.TestCase):
 
         migrated = parse_project_manifest(json.dumps(raw))
 
-        self.assertEqual(migrated.schema_version, 10)
+        self.assertEqual(migrated.schema_version, 12)
         self.assertEqual(
             tuple(record.lattice_extensions for record in migrated.electrode_provenance),
             ((), ()),

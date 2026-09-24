@@ -42,7 +42,11 @@ from moltage.orca.evidence import (
     OrcaFrequencyModeEvidence,
     OrcaImaginaryModeClassification,
 )
-from moltage.orca.project_evidence import OrcaOptimizationResultEvidence
+from moltage.orca.project_evidence import (
+    OrcaImportProvenance,
+    OrcaImportWavefunctionReadiness,
+    OrcaOptimizationResultEvidence,
+)
 from moltage.orca.settings import OrcaFrequencySettings, OrcaOptimizationSettings
 from moltage.orca.wbl import (
     WblContactSubspaceMode,
@@ -53,6 +57,7 @@ from moltage.orca.wbl import (
     OrcaWblResultEvidence,
     OrcaWblSettings,
 )
+from moltage.structure.connectivity import DEFAULT_CONNECTIVITY_MULTIPLIER
 
 
 class ManagedProjectManifestError(ValueError):
@@ -195,6 +200,9 @@ def serialize_project_manifest(project: CalculationProject) -> str:
                 "orca_wbl_settings": _wbl_settings_to_dict(step.orca_wbl_settings),
                 "orca_wbl_result": _wbl_result_to_dict(step.orca_wbl_result),
                 "orca_submitted_elements": list(step.orca_submitted_elements),
+                "orca_import_provenance": _import_provenance_to_dict(
+                    step.orca_import_provenance
+                ),
             }
             for step in project.steps
         ],
@@ -372,13 +380,20 @@ def _parse_step(raw: object, *, schema_version: int) -> ProjectStepRecord:
             else None
         ),
         orca_wbl_settings=(
-            _wbl_settings_from_dict(raw.get("orca_wbl_settings"))
+            _wbl_settings_from_dict(
+                raw.get("orca_wbl_settings"), schema_version=schema_version
+            )
             if schema_version >= 10
             else None
         ),
         orca_wbl_result=(
             _wbl_result_from_dict(raw.get("orca_wbl_result"))
             if schema_version >= 10
+            else None
+        ),
+        orca_import_provenance=(
+            _import_provenance_from_dict(raw.get("orca_import_provenance"))
+            if schema_version >= 11
             else None
         ),
         orca_submitted_elements=(
@@ -527,7 +542,61 @@ def _orca_runtime_from_dict(raw):
 def _optimization_result_to_dict(result):
     if result is None:
         return None
-    return {field: getattr(result, field) for field in result.__dataclass_fields__}
+    document = {field: getattr(result, field) for field in result.__dataclass_fields__}
+    document["origin"] = result.origin.value
+    return document
+
+
+def _import_provenance_to_dict(provenance):
+    if provenance is None:
+        return None
+    return {
+        "source_directory": provenance.source_directory,
+        "source_stem": provenance.source_stem,
+        "source_input_filename": provenance.source_input_filename,
+        "source_output_filename": provenance.source_output_filename,
+        "source_geometry_filename": provenance.source_geometry_filename,
+        "source_wavefunction_filename": provenance.source_wavefunction_filename,
+        "source_input_sha256": provenance.source_input_sha256,
+        "source_output_sha256": provenance.source_output_sha256,
+        "source_geometry_sha256": provenance.source_geometry_sha256,
+        "source_wavefunction_sha256": provenance.source_wavefunction_sha256,
+        "imported_at": provenance.imported_at.isoformat(),
+        "wavefunction_readiness": provenance.wavefunction_readiness.value,
+        "orca_2json_path": provenance.orca_2json_path,
+        "readiness_diagnostic": provenance.readiness_diagnostic,
+        "source_coordinate_path": provenance.source_coordinate_path,
+        "source_coordinate_sha256": provenance.source_coordinate_sha256,
+    }
+
+
+def _import_provenance_from_dict(raw):
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise TypeError("ORCA import provenance must be an object")
+    return OrcaImportProvenance(
+        source_directory=raw["source_directory"],
+        source_stem=raw["source_stem"],
+        source_input_filename=raw["source_input_filename"],
+        source_output_filename=raw["source_output_filename"],
+        source_geometry_filename=raw["source_geometry_filename"],
+        source_wavefunction_filename=raw["source_wavefunction_filename"],
+        source_input_sha256=raw["source_input_sha256"],
+        source_output_sha256=raw["source_output_sha256"],
+        source_geometry_sha256=raw["source_geometry_sha256"],
+        source_wavefunction_sha256=raw["source_wavefunction_sha256"],
+        imported_at=_parse_timestamp(raw["imported_at"], "imported_at"),
+        wavefunction_readiness=OrcaImportWavefunctionReadiness(
+            raw["wavefunction_readiness"]
+        ),
+        orca_2json_path=raw["orca_2json_path"],
+        readiness_diagnostic=raw["readiness_diagnostic"],
+        # Imports recorded before *xyzfile inputs were accepted copied an
+        # inline source input, so an absent coordinate file is the truth.
+        source_coordinate_path=raw.get("source_coordinate_path"),
+        source_coordinate_sha256=raw.get("source_coordinate_sha256"),
+    )
 
 
 def _optimization_result_from_dict(raw):
@@ -621,10 +690,11 @@ def _wbl_settings_to_dict(settings):
         "energy_min_relative_ev": settings.energy_min_relative_ev,
         "energy_max_relative_ev": settings.energy_max_relative_ev,
         "energy_step_ev": settings.energy_step_ev,
+        "connectivity_multiplier": settings.connectivity_multiplier,
     }
 
 
-def _wbl_settings_from_dict(raw):
+def _wbl_settings_from_dict(raw, *, schema_version):
     if raw is None:
         return None
     if not isinstance(raw, dict):
@@ -636,6 +706,11 @@ def _wbl_settings_from_dict(raw):
         raw["energy_min_relative_ev"],
         raw["energy_max_relative_ev"],
         raw["energy_step_ev"],
+        # Every WBL run recorded before schema 12 inferred connectivity with
+        # the inference default, so that is the factor those runs used.
+        raw["connectivity_multiplier"]
+        if schema_version >= 12
+        else DEFAULT_CONNECTIVITY_MULTIPLIER,
     )
 
 

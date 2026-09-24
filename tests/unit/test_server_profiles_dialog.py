@@ -118,6 +118,63 @@ class ServerProfilesDialogTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def _validated_orca_profile(self):
+        from moltage.domain.server_profile import (
+            OrcaRuntimeConfiguration,
+            RuntimeEnvironment,
+            RuntimeEnvironmentMode,
+        )
+        from moltage.orca.catalog import OrcaVersionEvidence, OrcaVersionFamily
+
+        runtime = OrcaRuntimeConfiguration(
+            "/apps/example/orca-6.1/orca",
+            RuntimeEnvironment(RuntimeEnvironmentMode.MODULES, ("orca/6.1.0",)),
+            OrcaVersionEvidence(
+                "Program Version 6.1.2",
+                "6.1.2",
+                OrcaVersionFamily.V6_1,
+                "synthetic validation",
+            ),
+        )
+        validated = replace(self.saved_profile, orca_runtime=runtime)
+        self.service.save(validated)
+        return runtime
+
+    def test_saving_connection_fields_keeps_the_validated_orca_runtime(self) -> None:
+        """Validate ORCA once; later connection saves must not discard it."""
+
+        runtime = self._validated_orca_profile()
+        dialog = ServerProfilesDialog(self.service, FakeConnectionService(), FakeKnownHosts())
+
+        dialog._remote_root.setText("/srv/moltage-test/other-projects")
+        dialog._save_profile()
+
+        reloaded = self.repository.load().profiles[0]
+        self.assertEqual(reloaded.remote_project_root, "/srv/moltage-test/other-projects")
+        self.assertEqual(reloaded.orca_runtime, runtime)
+
+    def test_save_as_copies_the_validated_orca_runtime(self) -> None:
+        runtime = self._validated_orca_profile()
+        dialog = ServerProfilesDialog(self.service, FakeConnectionService(), FakeKnownHosts())
+
+        dialog._name.setText("ExampleClusterCopy")
+        dialog._save_as_profile()
+
+        copied = next(
+            item
+            for item in self.repository.load().profiles
+            if item.name == "ExampleClusterCopy"
+        )
+        self.assertEqual(copied.orca_runtime, runtime)
+
+    def test_a_new_profile_starts_without_an_orca_runtime(self) -> None:
+        self._validated_orca_profile()
+        dialog = ServerProfilesDialog(self.service, FakeConnectionService(), FakeKnownHosts())
+
+        dialog._new_profile()
+
+        self.assertIsNone(dialog._editing_orca_runtime)
+
     def test_dialog_is_connection_only_with_clear_workspace_wording(self) -> None:
         connection = FakeConnectionService()
         dialog = ServerProfilesDialog(

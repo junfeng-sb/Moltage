@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 import csv
 from dataclasses import dataclass
 from hashlib import sha256
@@ -28,6 +29,29 @@ class OrcaWblArtifactError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class WblReportOrbital:
+    spin: str
+    mo_number: int
+    energy_relative_ev: float
+    transmission_at_fermi: float
+
+
+@dataclass(frozen=True, slots=True)
+class WblReportDetails:
+    """Read-only report evidence; no new persisted result schema."""
+
+    fermi_energy_ev: float
+    gamma0_left_ev: float
+    gamma0_right_ev: float
+    left_status: str
+    right_status: str
+    left_projection: str
+    right_projection: str
+    orbital_counts: tuple[tuple[str, int], ...]
+    top_orbitals: tuple[WblReportOrbital, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class OrcaWblPresentation:
     """Validated, display-sized WBL result reconstructed from JSON and CSV."""
 
@@ -46,6 +70,8 @@ class OrcaWblPresentation:
     source_hashes: tuple[tuple[str, str], ...]
     spin_treatment: WblSpinTreatment = WblSpinTreatment.SPIN_RESOLVED
     top_total: tuple[tuple[int, float], ...] = ()
+    report: WblReportDetails | None = None
+    report_unavailable_reason: str | None = None
 
 
 def wbl_presentation_from_result(
@@ -87,6 +113,7 @@ def wbl_presentation_from_result(
             (item.mo_number, item.transmission_at_fermi)
             for item in result.top_total
         ),
+        _report_from_result(result),
     )
 
 
@@ -104,6 +131,7 @@ def parse_wbl_presentation(
         if schema not in {
             "moltage.orca-wbl-result.v1",
             "moltage.orca-wbl-result.v2",
+            "moltage.orca-wbl-result.v3",
         }:
             raise ValueError("unsupported WBL result schema")
         model = document["model"]
@@ -201,6 +229,17 @@ def parse_wbl_presentation(
                 for name, digest in source_hashes.items()
             )
         )
+        report_unavailable_reason = None
+        try:
+            report = _parse_report_details(document, spin_treatment, numeric_rows)
+        except (KeyError, TypeError, ValueError) as error:
+            if schema == "moltage.orca-wbl-result.v3":
+                raise
+            # The legacy reader never required report-only fields. Preserve its
+            # curve/summary contract, but visibly report missing/inconsistent
+            # detail instead of guessing annotations or rejecting that result.
+            report = None
+            report_unavailable_reason = f"Legacy report detail unavailable: {error}"
         return OrcaWblPresentation(
             model["id"],
             model["classification"],
@@ -217,6 +256,8 @@ def parse_wbl_presentation(
             checked_hashes,
             spin_treatment,
             top_total,
+            report,
+            report_unavailable_reason,
         )
     except OrcaWblArtifactError:
         raise
@@ -224,6 +265,84 @@ def parse_wbl_presentation(
         raise OrcaWblArtifactError(
             f"WBL result artifacts are malformed: {error}"
         ) from None
+
+
+def _report_from_result(result: OrcaWblResult) -> WblReportDetails:
+    channels = (
+        (("total", result.total_contributions_at_fermi, result.top_total),)
+        if result.spin_treatment is WblSpinTreatment.CLOSED_SHELL_SPIN_DEGENERATE
+        else (
+            ("alpha", result.alpha_contributions_at_fermi, result.top_alpha),
+            ("beta", result.beta_contributions_at_fermi, result.top_beta),
+        )
+    )
+    return WblReportDetails(
+        result.settings.fermi_energy_ev,
+        float(result.settings.left.gamma0_ev), float(result.settings.right.gamma0_ev),
+        result.settings.left.parameter_status.value,
+        result.settings.right.parameter_status.value,
+        result.left_projector.resolved_mode.value,
+        result.right_projector.resolved_mode.value,
+        tuple((spin, len(all_mos)) for spin, all_mos, _top in channels),
+        tuple(
+            WblReportOrbital(
+                spin, item.mo_number,
+                item.orbital_energy_ev - result.settings.fermi_energy_ev,
+                item.transmission_at_fermi,
+            )
+            for spin, _all_mos, top in channels for item in top
+        ),
+    )
+
+
+def _parse_report_details(document, spin_treatment, rows) -> WblReportDetails:
+    # The caller preserves historical v1/v2 curves if optional report evidence
+    # is missing, with a visible reason; current v3 evidence must be complete.
+    missing = [key for key in (
+        "settings", "contacts", "orbital_contributions_at_fermi"
+    ) if key not in document]
+    if missing:
+        raise OrcaWblArtifactError(f"WBL report sections missing: {', '.join(missing)}")
+    settings = document["settings"]
+    fermi = float(settings["fermi_energy_ev"])
+    if not isfinite(fermi) or any(
+        not isclose(row[1] - row[0], fermi, rel_tol=1e-11, abs_tol=1e-10)
+        for row in rows
+    ):
+        raise OrcaWblArtifactError("WBL report Fermi energy disagrees with the energy grid")
+    contacts = [settings[side] for side in ("left", "right")]
+    gammas = tuple(_finite_nonnegative(c["gamma0_ev"], "Gamma_0") for c in contacts)
+    if min(gammas) <= 0.0:
+        raise OrcaWblArtifactError("WBL report Gamma_0 must be positive")
+    statuses = tuple(c["parameter_status"] for c in contacts)
+    if any(s not in {"HYPOTHESIS", "CALIBRATED"} for s in statuses):
+        raise OrcaWblArtifactError("WBL report parameter evidence is invalid")
+    channels = (
+        ("total",) if spin_treatment is WblSpinTreatment.CLOSED_SHELL_SPIN_DEGENERATE
+        else ("alpha", "beta")
+    )
+    counts, orbitals = [], []
+    for spin in channels:
+        all_mos = document["orbital_contributions_at_fermi"][spin]
+        if not isinstance(all_mos, list) or not all_mos:
+            raise OrcaWblArtifactError("WBL report orbital evidence is invalid")
+        counts.append((spin, len(all_mos)))
+        for entry in document["summary"][f"top_{spin}"]:
+            number = entry["mo_number_one_based"]
+            if not 1 <= number <= len(all_mos) or entry != all_mos[number - 1]:
+                raise OrcaWblArtifactError("WBL report leading MO disagrees with orbital evidence")
+            energy = float(entry["orbital_energy_ev"])
+            if not isfinite(energy):
+                raise OrcaWblArtifactError("WBL report orbital energy must be finite")
+            orbitals.append(WblReportOrbital(
+                spin, number, energy - fermi, float(entry["transmission_at_fermi"])
+            ))
+    return WblReportDetails(
+        fermi, *gammas, *statuses,
+        document["contacts"]["left"]["resolved_mode"],
+        document["contacts"]["right"]["resolved_mode"],
+        tuple(counts), tuple(orbitals),
+    )
 
 
 def _top_summary(value, spin: str) -> tuple[tuple[int, float], ...]:
@@ -317,6 +436,44 @@ def render_wbl_csv(result: OrcaWblResult) -> bytes:
     return stream.getvalue().encode("ascii")
 
 
+def render_wbl_text_export(presentation: OrcaWblPresentation) -> bytes:
+    """Render the verified displayed grid as Igor-friendly tab-delimited text."""
+
+    if not isinstance(presentation, OrcaWblPresentation):
+        raise TypeError("WBL text export requires verified presentation data")
+    stream = StringIO(newline="")
+    writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
+    if (
+        presentation.spin_treatment
+        is WblSpinTreatment.CLOSED_SHELL_SPIN_DEGENERATE
+    ):
+        writer.writerow(("energy_minus_EF_eV", "transmission"))
+        rows = zip(
+            presentation.energy_relative_ev,
+            presentation.transmission_total,
+            strict=True,
+        )
+    else:
+        writer.writerow(
+            (
+                "energy_minus_EF_eV",
+                "transmission_alpha",
+                "transmission_beta",
+                "transmission_total",
+            )
+        )
+        rows = zip(
+            presentation.energy_relative_ev,
+            presentation.transmission_alpha,
+            presentation.transmission_beta,
+            presentation.transmission_total,
+            strict=True,
+        )
+    for row in rows:
+        writer.writerow(tuple(format(value, ".17g") for value in row))
+    return stream.getvalue().encode("ascii")
+
+
 def render_wbl_json(
     result: OrcaWblResult,
     *,
@@ -353,7 +510,7 @@ def render_wbl_json(
             ],
         }
     document = {
-        "schema": "moltage.orca-wbl-result.v2",
+        "schema": "moltage.orca-wbl-result.v3",
         "model": {
             "id": result.model_id,
             "classification": result.model_classification,
@@ -383,17 +540,22 @@ def render_wbl_json(
     return (json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n").encode("ascii")
 
 
-def render_wbl_svg(result: OrcaWblResult, *, width: int = 1200, height: int = 760) -> bytes:
-    margin_left, margin_right, margin_top, margin_bottom = 105, 45, 55, 85
-    plot_width = width - margin_left - margin_right
-    plot_height = height - margin_top - margin_bottom
+def render_wbl_svg(result: OrcaWblResult, *, width: int = 1200, height: int = 840) -> bytes:
+    # Keep every annotation inside a fixed report viewBox. Requested SVG pixel
+    # dimensions scale the whole report proportionally, including its sidebar.
+    output_width, output_height = width, height
+    if width <= 0 or height <= 0:
+        raise OrcaWblArtifactError("WBL report canvas dimensions must be positive")
+    width, height = 1200, 840
+    margin_left, margin_right, margin_top, margin_bottom = 105, 360, 90, 85
+    plot_width = plot_height = min(width - margin_left - margin_right, height - margin_top - margin_bottom)
     displayed_curves = (
         (("Total", result.transmission_total, "#111111", "", 2.5),)
         if result.spin_treatment is WblSpinTreatment.CLOSED_SHELL_SPIN_DEGENERATE
         else (
-            ("Alpha", result.transmission_alpha, "#1976d2", "", 2.0),
-            ("Beta", result.transmission_beta, "#d32f2f", ' stroke-dasharray="8 5"', 2.0),
-            ("Spin sum", result.transmission_total, "#111111", "", 2.5),
+            ("Alpha", result.transmission_alpha, "#c51b29", "", 2.0),
+            ("Beta", result.transmission_beta, "#2166ac", "", 2.0),
+            ("Spin sum (Alpha + Beta)", result.transmission_total, "#111111", ' stroke-dasharray="8 5"', 1.2),
         )
     )
     positive = tuple(
@@ -448,29 +610,96 @@ def render_wbl_svg(result: OrcaWblResult, *, width: int = 1200, height: int = 76
         for _name, values, color, dash, stroke_width in displayed_curves
     )
     legend_parts = []
-    legend_width = 130 * len(displayed_curves)
-    legend_x = width - margin_right - legend_width
+    legend_x = margin_left + plot_width + 45
     for index, (name, _values, color, dash, stroke_width) in enumerate(displayed_curves):
-        x = legend_x + index * 130
+        x = legend_x
+        y = 75 + index * 23
         legend_parts.append(
-            f'<line x1="{x}" y1="35" x2="{x + 35}" y2="35" stroke="{color}" '
+            f'<line x1="{x}" y1="{y}" x2="{x + 26}" y2="{y}" stroke="{color}" '
             f'stroke-width="{stroke_width}"{dash}/>'
-            f'<text x="{x + 42}" y="40">{escape(name)}</text>'
+            f'<text x="{x + 34}" y="{y + 5}">{escape(name)}</text>'
+        )
+
+    report = _report_from_result(result)
+    detail_parts, marker_parts = [], []
+
+    def report_line(text, y, *, color="black", bold=False):
+        formatted_text = escape(text).replace(
+            "Eꜰ", 'E<tspan font-size="10" baseline-shift="sub">F</tspan>'
+        )
+        detail_parts.append(
+            f'<text x="{legend_x}" y="{y}" fill="{color}" '
+            f'font-weight="{"bold" if bold else "normal"}">{formatted_text}</text>'
+        )
+
+    report_line("Model settings", 170, bold=True)
+    report_line("Diagonal WBL · HYPOTHESIS", 194)
+    report_line(f"Eꜰ = {report.fermi_energy_ev:.4g} eV", 218)
+    report_line(f"Γ₀,L = {report.gamma0_left_ev:.4g} eV ({report.left_status})", 242)
+    report_line(f"Γ₀,R = {report.gamma0_right_ev:.4g} eV ({report.right_status})", 266)
+    report_line("; ".join(f"{spin.title()}: {count:,} MOs" for spin, count in report.orbital_counts), 290)
+    if "S_ALL_P_LEGACY" in (report.left_projection, report.right_projection):
+        report_line("Legacy selected-S all-p weights", 314)
+    report_line("Largest contributions at Eꜰ", 352, bold=True)
+    report_line("Ranked by individual term; MOs 1-based.", 376)
+    ranks = {}
+    for index, orbital in enumerate(report.top_orbitals):
+        ranks[orbital.spin] = ranks.get(orbital.spin, 0) + 1
+        name, color, values, symbol = {
+            "alpha": ("α", "#c51b29", result.transmission_alpha, "▼"),
+            "beta": ("β", "#2166ac", result.transmission_beta, "▲"),
+            "total": ("", "#111111", result.transmission_total, "▲"),
+        }[orbital.spin]
+        y = 412 + index * 75
+        report_line(f"{symbol} {name}{ranks[orbital.spin]}: MO {orbital.mo_number}", y, color=color, bold=True)
+        report_line(f"ε − Eꜰ = {orbital.energy_relative_ev:+.3f} eV", y + 22)
+        contribution = orbital.transmission_at_fermi
+        coefficient, exponent = f"{contribution:.2e}".split("e")
+        formatted = f"{coefficient} × {_power_of_ten_text(int(exponent))}"
+        report_line(f"Tₙ(Eꜰ) = {formatted}", y + 44)
+        # Place on the log-linear curve at the actual MO energy; no scientific
+        # recomputation or restriction to the selected orbitals is performed.
+        energy = orbital.energy_relative_ev
+        if x_min <= energy <= x_max:
+            i = bisect_left(result.energy_relative_ev, energy)
+            if result.energy_relative_ev[i] == energy:
+                value = values[i]
+            elif values[i - 1] > 0 and values[i] > 0:
+                fraction = (energy - result.energy_relative_ev[i - 1]) / (result.energy_relative_ev[i] - result.energy_relative_ev[i - 1])
+                value = 10 ** (log10(values[i - 1]) + fraction * (log10(values[i]) - log10(values[i - 1])))
+            else:
+                value = 0
+            if value > 0:
+                x = margin_left + (energy - x_min) / (x_max - x_min) * plot_width
+                my = margin_top + (y_max_exponent - log10(value)) / y_log_span * plot_height
+                sign = 1 if orbital.spin == "alpha" else -1
+                marker_parts.append(
+                    f'<polygon points="{x-5:.3f},{my-sign*4:.3f} {x+5:.3f},{my-sign*4:.3f} {x:.3f},{my+sign*5:.3f}" fill="{color}" stroke="white" stroke-width="0.7"/>'
+                )
+    report_line("Markers locate MO energies on full curves.", 738)
+    report_line("Not explicit Au–molecule–Au DFT-NEGF.", 762)
+
+    for index in range(9):
+        energy = x_min + index * (x_max - x_min) / 8
+        x = margin_left + index * plot_width / 8
+        grid_and_labels.append(
+            f'<line x1="{x}" x2="{x}" y1="{margin_top}" y2="{margin_top+plot_height}" stroke="#ddd"/>'
+            f'<text x="{x}" y="{margin_top+plot_height+27}" text-anchor="middle" font-family="Arial" font-size="14">{energy:.3g}</text>'
         )
 
     title = escape("ORCA linker-parameterized WBL transmission (HYPOTHESIS)")
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{output_width}" height="{output_height}" viewBox="0 0 {width} {height}">
 <rect width="100%" height="100%" fill="white"/>
 <text x="{width/2:.1f}" y="30" text-anchor="middle" font-family="Arial" font-size="20">{title}</text>
 {''.join(grid_and_labels)}
 <rect x="{margin_left}" y="{margin_top}" width="{plot_width}" height="{plot_height}" fill="none" stroke="black" stroke-width="1.5"/>
 {curve_paths}
+{''.join(marker_parts)}
 <line x1="{margin_left + (0.0-x_min)/(x_max-x_min)*plot_width:.3f}" y1="{margin_top}" x2="{margin_left + (0.0-x_min)/(x_max-x_min)*plot_width:.3f}" y2="{margin_top+plot_height}" stroke="#777" stroke-dasharray="4 4"/>
-<text x="{width/2:.1f}" y="{height-25}" text-anchor="middle" font-family="Arial" font-size="17">E - E_F (eV)</text>
+<text x="{margin_left+plot_width/2:.1f}" y="{margin_top+plot_height+60}" text-anchor="middle" font-family="Arial" font-size="17">E − E<tspan font-size="12" baseline-shift="sub">F</tspan> (eV)</text>
 <text transform="translate(28 {height/2:.1f}) rotate(-90)" text-anchor="middle" font-family="Arial" font-size="17">Transmission</text>
-<text x="{margin_left}" y="{height-50}" font-family="Arial" font-size="14">{x_min:.3g}</text>
-<text x="{margin_left+plot_width}" y="{height-50}" text-anchor="end" font-family="Arial" font-size="14">{x_max:.3g}</text>
-<g font-family="Arial" font-size="14">{''.join(legend_parts)}</g>
+<line x1="{legend_x-18}" x2="{legend_x-18}" y1="60" y2="{height-40}" stroke="#ddd"/>
+<g font-family="Arial" font-size="14">{''.join(legend_parts)}{''.join(detail_parts)}</g>
 </svg>\n'''
     return svg.encode("utf-8")
 
@@ -513,6 +742,7 @@ def render_wbl_artifacts(result, *, source_hashes, tool_evidence):
 def _settings(result):
     settings = result.settings
     return {
+        "connectivity_multiplier": settings.connectivity_multiplier,
         "fermi_energy_ev": settings.fermi_energy_ev,
         "energy_min_relative_ev": settings.energy_min_relative_ev,
         "energy_max_relative_ev": settings.energy_max_relative_ev,

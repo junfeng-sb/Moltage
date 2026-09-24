@@ -109,7 +109,7 @@ Moltage 根据当前活动工作区和已验证项目状态启用操作。请检
 - 重新检查 hostname、port、username 和网络/VPN 访问。
 - 首次连接需要明确接受显示的 host-key fingerprint。
 - host key 改变时会被阻止。在替换可信证据前，请先向服务器管理员确认变化。
-- v0.2.1 支持密码认证；尚未实现 SSH key、jump host 或 ssh-agent 工作流。
+- v0.2.2 支持密码认证；尚未实现 SSH key、jump host 或 ssh-agent 工作流。
 
 切勿把密码、私钥、访问 token 或未经去敏的内部服务器记录粘贴到公开 issue。
 
@@ -237,4 +237,4 @@ WBL 阶段不以创建 Molden 文件作为成功标准。它优先使用完整�
 
 ---
 
-至此，v0.2.1 中文用户手册结束。可返回[手册目录](README.md)或[项目 README](../../README.md)。
+至此，v0.2.2 中文用户手册结束。可返回[手册目录](README.md)或[项目 README](../../README.md)。

@@ -48,6 +48,7 @@ from moltage.orca.wbl import (
     WblParameterStatus,
     WblSpinTreatment,
 )
+from moltage.structure.connectivity import DEFAULT_CONNECTIVITY_MULTIPLIER
 from moltage.remote.project_manifest import parse_project_manifest, serialize_project_manifest
 from phase2b1_test_support import profile
 
@@ -192,7 +193,7 @@ class OrcaPersistenceTests(unittest.TestCase):
 
         self.assertEqual(decoded, project)
         raw = json.loads(encoded)
-        self.assertEqual(raw["schema_version"], 10)
+        self.assertEqual(raw["schema_version"], 12)
         self.assertEqual(raw["workflow_kind"], "ORCA")
         self.assertNotIn("WBL", encoded)
 
@@ -246,6 +247,7 @@ class OrcaPersistenceTests(unittest.TestCase):
             -2.0,
             2.0,
             0.1,
+            1.30,
         )
         wbl_result = OrcaWblResultEvidence(
             WBL_MODEL_ID,
@@ -286,6 +288,22 @@ class OrcaPersistenceTests(unittest.TestCase):
         )
         self.assertEqual(decoded.steps[1].orca_wbl_settings, wbl_settings)
         self.assertEqual(decoded.steps[1].orca_wbl_result, wbl_result)
+        self.assertEqual(
+            decoded.steps[1].orca_wbl_settings.connectivity_multiplier,
+            1.30,
+        )
+
+        # Every WBL stage written before schema 12 ran on the inference default.
+        before_schema_12 = json.loads(encoded)
+        before_schema_12["schema_version"] = 11
+        before_schema_12["steps"][1]["orca_wbl_settings"].pop(
+            "connectivity_multiplier"
+        )
+        migrated_factor = parse_project_manifest(json.dumps(before_schema_12))
+        self.assertEqual(
+            migrated_factor.steps[1].orca_wbl_settings.connectivity_multiplier,
+            DEFAULT_CONNECTIVITY_MULTIPLIER,
+        )
 
         legacy = json.loads(encoded)
         legacy_result = legacy["steps"][1]["orca_wbl_result"]

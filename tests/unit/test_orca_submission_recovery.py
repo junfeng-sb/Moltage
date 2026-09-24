@@ -2,9 +2,12 @@
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
+import shlex
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 from uuid import UUID
 
 from moltage.app.local_project_index import LocalProjectIndexRepository
@@ -65,7 +68,13 @@ from moltage.orca.wbl import (
     WblLinkerKind,
     WblParameterStatus,
 )
-from moltage.remote.executor import RemoteCommandOutcomeUnknown, RemoteCommandResult
+from moltage.structure.connectivity import DEFAULT_CONNECTIVITY_MULTIPLIER
+from moltage.remote.executor import (
+    RemoteCommandOutcomeUnknown,
+    RemoteCommandResult,
+    RemotePathStat,
+)
+from moltage.remote.step_inputs import RemoteCopyError
 from moltage.remote.project_manifest import (
     parse_project_manifest,
     serialize_project_manifest,
@@ -182,6 +191,12 @@ class OrcaRemoteExecutor(MemoryRemoteExecutor):
 
     def execute(self, command: str) -> RemoteCommandResult:
         self.operations.append(("execute", command))
+        if command.startswith("sha256sum -- "):
+            path = shlex.split(command)[-1]
+            if path not in self.files:
+                return RemoteCommandResult(1, b"", b"missing")
+            digest = sha256(self.files[path]).hexdigest()
+            return RemoteCommandResult(0, f"{digest}  {path}\n".encode(), b"")
         if "__MOLTAGE_ORCA_CONFIGURED__=" in command:
             return RemoteCommandResult(
                 0,
@@ -616,6 +631,120 @@ class OrcaSubmissionRecoveryTests(unittest.TestCase):
         self.assertTrue(snapshot.orca_trajectory_available)
         self.assertIn("not ready", snapshot.status_message)
 
+    def test_single_and_full_refresh_hash_gbw_without_downloading_large_payload(self):
+        submitted = self.submit_optimization().project
+        install_optimization_results(self.remote, submitted)
+        self.remote.sacct_stdout = b"90001|COMPLETED|0:0\n"
+        gbw_path = f"{submitted.remote_project_path}/orca_opt.gbw"
+        expected = sha256(self.remote.files[gbw_path]).hexdigest()
+        original_read, original_stat = self.remote.read_bytes, self.remote.stat
+
+        def reject_wavefunction_download(path):
+            if path == gbw_path:
+                raise AssertionError("Status refresh must not download the wavefunction")
+            return original_read(path)
+
+        def large_wavefunction_stat(path):
+            if path == gbw_path:
+                return RemotePathStat(False, 2**32)
+            return original_stat(path)
+
+        self.remote.operations.clear()
+        with (
+            patch.object(self.remote, "read_bytes", side_effect=reject_wavefunction_download),
+            patch.object(self.remote, "stat", side_effect=large_wavefunction_stat),
+        ):
+            service = self.recovery_service()
+            snapshot = service.refresh_project(
+                configured_profile(), submitted.remote_project_path,
+                supplied_password="synthetic-password",
+            )
+            discovered = service.discover_and_refresh(
+                configured_profile(), "synthetic-password",
+            )
+
+        self.assertEqual(len(discovered.snapshots), 1)
+        for recovered in (snapshot, discovered.snapshots[0]):
+            self.assertIs(recovered.active_step.state, ProjectStepState.SUCCEEDED)
+            evidence = recovered.active_step.orca_optimization_result
+            self.assertTrue(evidence.wbl_input_ready)
+            self.assertEqual(evidence.gbw_sha256, expected)
+        self.assertEqual(discovered.snapshots[0].project, snapshot.project)
+        self.assertEqual(
+            sum(item[0] == "execute" and item[1].startswith("sha256sum -- ")
+                for item in self.remote.operations),
+            2,
+        )
+        self.assertNotIn(("read", gbw_path), self.remote.operations)
+
+    def test_empty_or_directory_gbw_is_not_ready_and_is_not_hashed(self):
+        submitted = self.submit_optimization().project
+        install_optimization_results(self.remote, submitted, gbw=False)
+        self.remote.sacct_stdout = b"90001|COMPLETED|0:0\n"
+        gbw_path = f"{submitted.remote_project_path}/orca_opt.gbw"
+        for kind in ("empty", "directory"):
+            with self.subTest(kind=kind):
+                if kind == "empty":
+                    self.remote.files[gbw_path] = b""
+                else:
+                    self.remote.files.pop(gbw_path)
+                    self.remote.directories.add(gbw_path)
+                self.remote.operations.clear()
+                snapshot = self.recovery_service().refresh_project(
+                    configured_profile(), submitted.remote_project_path,
+                    supplied_password="synthetic-password",
+                )
+                self.assertIs(snapshot.active_step.state, ProjectStepState.SUCCEEDED)
+                evidence = snapshot.active_step.orca_optimization_result
+                self.assertFalse(evidence.wbl_input_ready)
+                self.assertIsNone(evidence.gbw_sha256)
+                self.assertFalse(any(
+                    item[0] == "execute" and item[1].startswith("sha256sum -- ")
+                    for item in self.remote.operations
+                ))
+                self.assertNotIn(("read", gbw_path), self.remote.operations)
+
+    def test_gbw_hash_failure_keeps_verified_manifest_without_download_fallback(self):
+        submitted = self.submit_optimization().project
+        install_optimization_results(self.remote, submitted)
+        self.remote.sacct_stdout = b"90001|COMPLETED|0:0\n"
+        service = self.recovery_service()
+        service.refresh_project(
+            configured_profile(), submitted.remote_project_path,
+            supplied_password="synthetic-password",
+        )
+        manifest_path = f"{submitted.remote_project_path}/.moltage/project.json"
+        verified_manifest = self.remote.files[manifest_path]
+        gbw_path = f"{submitted.remote_project_path}/orca_opt.gbw"
+        original_execute = self.remote.execute
+        failures = (
+            (RemoteCommandResult(127, b"", b"sha256sum unavailable"), RemoteCopyError),
+            (RemoteCommandResult(0, b"invalid digest\n", b""), RemoteCopyError),
+            (RemoteCommandOutcomeUnknown("synthetic connection loss"), RemoteCommandOutcomeUnknown),
+        )
+        for outcome, error_type in failures:
+            with self.subTest(outcome=outcome):
+                def failed_hash(command):
+                    if command.startswith("sha256sum -- "):
+                        if isinstance(outcome, Exception):
+                            raise outcome
+                        return outcome
+                    return original_execute(command)
+
+                self.remote.operations.clear()
+                with patch.object(self.remote, "execute", side_effect=failed_hash):
+                    with self.assertRaises(error_type):
+                        service.refresh_project(
+                            configured_profile(), submitted.remote_project_path,
+                            supplied_password="synthetic-password",
+                        )
+                self.assertEqual(self.remote.files[manifest_path], verified_manifest)
+                self.assertNotIn(("read", gbw_path), self.remote.operations)
+                self.assertFalse(any(
+                    item[0] in {"write", "rename", "mkdir"}
+                    for item in self.remote.operations
+                ))
+
     def test_optimization_recovery_rejects_changed_submitted_input_bytes(self):
         submitted = self.submit_optimization().project
         install_optimization_results(self.remote, submitted)
@@ -834,6 +963,7 @@ class OrcaSubmissionRecoveryTests(unittest.TestCase):
             -2.0,
             2.0,
             0.2,
+            DEFAULT_CONNECTIVITY_MULTIPLIER,
         )
         gbw_hash = optimized.project.steps[0].orca_optimization_result.gbw_sha256
         self.assertIsNotNone(gbw_hash)

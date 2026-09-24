@@ -55,7 +55,7 @@ def _download(url: str, destination: Path) -> None:
             raise
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "Moltage-release-source-preparer/0.2.1"},
+        headers={"User-Agent": "Moltage-release-source-preparer/0.2.2"},
     )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:

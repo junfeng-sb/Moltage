@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping
 import hashlib
 from pathlib import PurePosixPath
 import re
+import shlex
 
 from moltage.remote.executor import (
     RemoteExecutor,
@@ -101,6 +102,7 @@ def upload_new_files_atomically(
     files: Mapping[str, bytes],
     *,
     temporary_id_factory: Callable[[], str],
+    verify_on_server: bool = False,
 ) -> tuple[tuple[str, str], ...]:
     """Preflight absence, upload named new files, and verify exact SHA256."""
 
@@ -140,9 +142,13 @@ def upload_new_files_atomically(
     hashes: list[tuple[str, str]] = []
     for filename, data in files.items():
         destination = str(PurePosixPath(remote_directory) / filename)
-        remote_data = executor.read_bytes(destination)
         digest = hashlib.sha256(data).hexdigest()
-        if hashlib.sha256(remote_data).hexdigest() != digest:
+        remote_digest = (
+            remote_file_sha256(executor, destination)
+            if verify_on_server
+            else hashlib.sha256(executor.read_bytes(destination)).hexdigest()
+        )
+        if remote_digest != digest:
             raise StepInputChecksumError(filename)
         hashes.append((filename, digest))
     return tuple(hashes)
@@ -210,6 +216,105 @@ def replace_existing_file_atomically(
     if hashlib.sha256(remote_data).hexdigest() != digest:
         raise StepInputChecksumError(filename)
     return digest
+
+
+class RemoteCopyError(StepInputTransferError):
+    """Raised when a server-side copy of one managed input cannot be proven."""
+
+
+def remote_file_sha256(executor: RemoteExecutor, path: str) -> str:
+    """Return one remote file's SHA256 without transferring its contents."""
+
+    _require_absolute_path(path)
+    result = executor.execute("sha256sum -- " + shlex.quote(path))
+    if result.exit_status != 0:
+        raise RemoteCopyError(f"the SHA256 of {path} could not be read")
+    try:
+        digest = result.stdout.decode("ascii").split()[0]
+    except (UnicodeDecodeError, IndexError):
+        raise RemoteCopyError(f"the SHA256 evidence for {path} is malformed") from None
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise RemoteCopyError(f"the SHA256 evidence for {path} is malformed")
+    return digest
+
+
+def copy_remote_files_with_verified_digests(
+    executor: RemoteExecutor,
+    destination_directory: str,
+    sources: Mapping[str, str],
+    expected_digests: Mapping[str, str],
+) -> tuple[tuple[str, str], ...]:
+    """Copy server-side into a managed directory and verify each destination.
+
+    ``sources`` maps each managed destination filename to one absolute source
+    path.  The source is only read: the copy runs on the server, so a large
+    wavefunction never crosses the network, and every destination digest must
+    equal the digest recorded for its source before the copy.
+    """
+
+    _validate_named_files(destination_directory, {name: b"" for name in sources})
+    if set(sources) != set(expected_digests):
+        raise RemoteCopyError("each copied file requires one expected SHA256")
+    copied: list[tuple[str, str]] = []
+    for filename, source in sources.items():
+        _require_absolute_path(source)
+        expected = expected_digests[filename]
+        if re.fullmatch(r"[0-9a-f]{64}", str(expected)) is None:
+            raise RemoteCopyError(f"the expected SHA256 for {filename} is unavailable")
+        destination = str(PurePosixPath(destination_directory) / filename)
+        result = executor.execute(
+            "cp -- " + shlex.quote(source) + " " + shlex.quote(destination)
+        )
+        if result.exit_status != 0:
+            raise RemoteCopyError(f"{filename} could not be copied into the project")
+        if remote_file_sha256(executor, destination) != expected:
+            raise StepInputChecksumError(filename)
+        copied.append((filename, expected))
+    return tuple(copied)
+
+
+def discard_imported_step_inputs(
+    executor: RemoteExecutor,
+    project_directory: str,
+    filenames: tuple[str, ...],
+    *,
+    metadata_directory: str | None = None,
+) -> bool:
+    """Remove exactly the named copies and the now-empty managed directories.
+
+    Only the exact paths this operation may have created are removed, with no
+    wildcard and no recursive deletion; ``rmdir`` succeeds only while a
+    directory is empty.  The return value states whether the project directory
+    is proven to be gone.
+    """
+
+    _validate_named_files(project_directory, {name: b"" for name in filenames})
+    root = PurePosixPath(project_directory)
+    targets = [str(root / name) for name in filenames]
+    removals = "rm -f -- " + " ".join(shlex.quote(target) for target in targets)
+    directories = (
+        [str(root / metadata_directory)] if metadata_directory is not None else []
+    )
+    directories.append(project_directory)
+    commands = [removals] + [
+        "rmdir -- " + shlex.quote(directory) for directory in directories
+    ]
+    try:
+        result = executor.execute("; ".join(commands))
+    except RemoteExecutorError:
+        return False
+    return result.exit_status == 0
+
+
+def _require_absolute_path(path: object) -> None:
+    if (
+        not isinstance(path, str)
+        or not path.startswith("/")
+        or str(PurePosixPath(path)) != path
+        or ".." in PurePosixPath(path).parts
+        or any(ord(character) < 32 for character in path)
+    ):
+        raise RemoteCopyError("remote paths must be absolute normalized POSIX paths")
 
 
 def _validate_named_files(

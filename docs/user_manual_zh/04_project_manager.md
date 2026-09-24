@@ -121,6 +121,7 @@ Project Manager 是非模态窗口。隐藏窗口不会停止状态刷新或远�
 | **Kill Job** | 对严格限定的 Step 3 内存不足场景，在重新验证对应 Job 后明确请求取消 |
 | **Cancel ORCA Job...** | 取消经过验证且仍处于活动状态的 ORCA 优化 Job |
 | **Resubmit Optimization...** | 从 ORCA 项目打开结构化设置并创建新项目；旧 Job 若仍活动会先被取消 |
+| **Resubmit Step 2 (WBL)...** | 修改上次 WBL 参数并在原项目重算；成功后替换旧结果，不重新优化分子 |
 | **Resubmit Step 3...** | 对经检查的 Step 3 超时或内存不足失败重试；资源可编辑，科学输入不可变 |
 | **Retry with explicit self-energy...** | 准备严格限定的 AITRANSS 界面重叠重试 |
 | **View Transmission** | 打开科学状态成功且当前可解析的 FHI/AITRANSS 结果 |

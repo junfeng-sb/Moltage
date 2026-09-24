@@ -1,0 +1,195 @@
+{
+  "artifacts": {
+    "plot_svg": "orca_wbl_transmission.svg",
+    "transmission_csv": "orca_wbl_transmission.csv"
+  },
+  "contacts": {
+    "left": {
+      "ao_indices_zero_based": [
+        8,
+        11
+      ],
+      "atom_index_zero_based": 1,
+      "basis_mapping": "USER_EXPLICIT_AO_INDICES",
+      "direction": null,
+      "linker": "SH",
+      "projector_vectors": [
+        [
+          {
+            "ao_index": 8,
+            "coefficient": 1.0
+          }
+        ],
+        [
+          {
+            "ao_index": 11,
+            "coefficient": 1.0
+          }
+        ]
+      ],
+      "resolved_mode": "MANUAL_AO"
+    },
+    "right": {
+      "ao_indices_zero_based": [
+        23,
+        26
+      ],
+      "atom_index_zero_based": 4,
+      "basis_mapping": "USER_EXPLICIT_AO_INDICES",
+      "direction": null,
+      "linker": "SH",
+      "projector_vectors": [
+        [
+          {
+            "ao_index": 23,
+            "coefficient": 1.0
+          }
+        ],
+        [
+          {
+            "ao_index": 26,
+            "coefficient": 1.0
+          }
+        ]
+      ],
+      "resolved_mode": "MANUAL_AO"
+    }
+  },
+  "model": {
+    "classification": "HYPOTHESIS",
+    "description": "Linker-parameterized independent-resonance wide-band-limit hypothesis; not explicit Au-molecule-Au DFT-NEGF",
+    "id": "MOLtage_ORCA_LINKER_WBL_V1",
+    "spin_treatment": "SPIN_RESOLVED",
+    "transmission_convention": "RAW_ALPHA_PLUS_BETA_IN_E2_OVER_H_PER_SPIN_CONVENTION"
+  },
+  "orbital_contributions_at_fermi": {
+    "alpha": [
+      {
+        "gamma_left_ev": 0.1,
+        "gamma_right_ev": 0.125,
+        "left_weight": 0.25,
+        "mo_number_one_based": 1,
+        "orbital_energy_ev": -2.7211386245988,
+        "right_weight": 0.25,
+        "spin": "ALPHA",
+        "transmission_at_fermi": 0.0016852603316928946
+      },
+      {
+        "gamma_left_ev": 0.1,
+        "gamma_right_ev": 0.125,
+        "left_weight": 0.25,
+        "mo_number_one_based": 2,
+        "orbital_energy_ev": 2.7211386245988,
+        "right_weight": 0.25,
+        "spin": "ALPHA",
+        "transmission_at_fermi": 0.0016852603316928946
+      }
+    ],
+    "beta": [
+      {
+        "gamma_left_ev": 0.1,
+        "gamma_right_ev": 0.125,
+        "left_weight": 0.25,
+        "mo_number_one_based": 1,
+        "orbital_energy_ev": -2.17691089967904,
+        "right_weight": 0.25,
+        "spin": "BETA",
+        "transmission_at_fermi": 0.0026306943057164346
+      },
+      {
+        "gamma_left_ev": 0.1,
+        "gamma_right_ev": 0.125,
+        "left_weight": 0.25,
+        "mo_number_one_based": 2,
+        "orbital_energy_ev": 3.26536634951856,
+        "right_weight": 0.25,
+        "spin": "BETA",
+        "transmission_at_fermi": 0.001170930171332745
+      }
+    ]
+  },
+  "schema": "moltage.orca-wbl-result.v2",
+  "settings": {
+    "energy_max_relative_ev": 4.0,
+    "energy_min_relative_ev": -4.0,
+    "energy_step_ev": 0.5,
+    "fermi_energy_ev": 0.0,
+    "left": {
+      "atom_index_zero_based": 1,
+      "gamma0_ev": 0.4,
+      "linker": "SH",
+      "manual_ao_indices_zero_based": [
+        8,
+        11
+      ],
+      "manual_direction": null,
+      "parameter_status": "HYPOTHESIS",
+      "requested_subspace_mode": "MANUAL_AO"
+    },
+    "right": {
+      "atom_index_zero_based": 4,
+      "gamma0_ev": 0.5,
+      "linker": "SH",
+      "manual_ao_indices_zero_based": [
+        23,
+        26
+      ],
+      "manual_direction": null,
+      "parameter_status": "CALIBRATED",
+      "requested_subspace_mode": "MANUAL_AO"
+    }
+  },
+  "source_sha256": {
+    "orca_opt.gbw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "summary": {
+    "t_alpha_at_fermi": 0.003370520663385789,
+    "t_beta_at_fermi": 0.0038016244770491796,
+    "t_total_at_fermi": 0.007172145140434969,
+    "top_alpha": [
+      {
+        "gamma_left_ev": 0.1,
+        "gamma_right_ev": 0.125,
+        "left_weight": 0.25,
+        "mo_number_one_based": 1,
+        "orbital_energy_ev": -2.7211386245988,
+        "right_weight": 0.25,
+        "spin": "ALPHA",
+        "transmission_at_fermi": 0.0016852603316928946
+      },
+      {
+        "gamma_left_ev": 0.1,
+        "gamma_right_ev": 0.125,
+        "left_weight": 0.25,
+        "mo_number_one_based": 2,
+        "orbital_energy_ev": 2.7211386245988,
+        "right_weight": 0.25,
+        "spin": "ALPHA",
+        "transmission_at_fermi": 0.0016852603316928946
+      }
+    ],
+    "top_beta": [
+      {
+        "gamma_left_ev": 0.1,
+        "gamma_right_ev": 0.125,
+        "left_weight": 0.25,
+        "mo_number_one_based": 1,
+        "orbital_energy_ev": -2.17691089967904,
+        "right_weight": 0.25,
+        "spin": "BETA",
+        "transmission_at_fermi": 0.0026306943057164346
+      },
+      {
+        "gamma_left_ev": 0.1,
+        "gamma_right_ev": 0.125,
+        "left_weight": 0.25,
+        "mo_number_one_based": 2,
+        "orbital_energy_ev": 3.26536634951856,
+        "right_weight": 0.25,
+        "spin": "BETA",
+        "transmission_at_fermi": 0.001170930171332745
+      }
+    ]
+  },
+  "tool_evidence": {}
+}

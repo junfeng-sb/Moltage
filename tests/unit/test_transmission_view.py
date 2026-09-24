@@ -19,12 +19,12 @@ from moltage.gui.transmission_plot import (
     transmission_at_fermi,
     transmission_plot_defaults,
 )
-from moltage.gui.transmission_view import (
+from moltage.gui.transmission_canvas import (
     AxisRangeDialog,
-    TransmissionWindow,
-    _format_scientific_notation,
-    _format_significant_value,
+    format_scientific_notation as _format_scientific_notation,
+    format_significant_value as _format_significant_value,
 )
+from moltage.gui.transmission_view import TransmissionWindow
 from moltage.gui.transmission_settings import (
     PlotLineStyle,
     TickDirection,
@@ -626,13 +626,15 @@ class TransmissionWindowTests(unittest.TestCase):
                 x_minor_tick_count=2,
                 y_minor_tick_count=4,
             ),
-            curve=replace(
-                settings.curve,
-                color="#d02070",
-                width=3.5,
-                line_style=PlotLineStyle.DASH,
-                legend_visible=True,
-                legend_label="Calculated T(E)",
+            curves=(
+                replace(
+                    settings.curves[0],
+                    color="#d02070",
+                    width=3.5,
+                    line_style=PlotLineStyle.DASH,
+                    legend_visible=True,
+                    legend_label="Calculated T(E)",
+                ),
             ),
             canvas=replace(
                 settings.canvas,

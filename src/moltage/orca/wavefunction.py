@@ -13,6 +13,8 @@ from moltage.domain.structure import Atom, MolecularStructure
 
 
 HARTREE_TO_EV = 27.211386245988
+# Absolute tolerance for occupation numbers and the electron counts they sum to.
+_OCCUPANCY_TOLERANCE = 1.0e-6
 
 
 class OrcaWavefunctionError(ValueError):
@@ -127,9 +129,6 @@ def parse_orca_wavefunction_json(data: str | bytes) -> OrcaWavefunction:
         raise OrcaWavefunctionError(
             f"S-Matrix dimension {overlap.shape} does not match {ao_count} AO functions"
         )
-    alpha, beta, restricted = _parse_spin_orbitals(
-        molecule, ao_count, str(molecule.get("HFTyp", ""))
-    )
     try:
         charge = int(molecule["Charge"])
         multiplicity = int(molecule["Multiplicity"])
@@ -137,6 +136,9 @@ def parse_orca_wavefunction_json(data: str | bytes) -> OrcaWavefunction:
         raise OrcaWavefunctionError("ORCA charge/multiplicity evidence is missing") from None
     if multiplicity < 1:
         raise OrcaWavefunctionError("ORCA multiplicity must be positive")
+    alpha, beta, restricted = _parse_spin_orbitals(
+        molecule, ao_count, str(molecule.get("HFTyp", "")), multiplicity
+    )
     header = raw.get("ORCA Header")
     version = header.get("Version") if isinstance(header, dict) else None
     return OrcaWavefunction(
@@ -165,7 +167,7 @@ def render_orca_2json_configuration() -> bytes:
     return (json.dumps(document, indent=2) + "\n").encode("ascii")
 
 
-def _parse_spin_orbitals(molecule, ao_count, hf_type):
+def _parse_spin_orbitals(molecule, ao_count, hf_type, multiplicity):
     container = molecule.get("MolecularOrbitals")
     alpha_raw = beta_raw = None
     if isinstance(container, dict):
@@ -193,12 +195,13 @@ def _parse_spin_orbitals(molecule, ao_count, hf_type):
             if has_spin:
                 alpha_raw = {"EnergyUnit": container.get("EnergyUnit"), "MOs": spin_groups["ALPHA"]}
                 beta_raw = {"EnergyUnit": container.get("EnergyUnit"), "MOs": spin_groups["BETA"]}
+            elif hf_type.upper().startswith("U"):
+                alpha, beta = _split_unlabelled_unrestricted(
+                    container, ao_count, multiplicity
+                )
+                return alpha, beta, False
             else:
                 restricted = _parse_orbital_set(container, ao_count, "restricted")
-                if hf_type.upper().startswith("U"):
-                    raise OrcaWavefunctionError(
-                        "unrestricted ORCA JSON does not identify alpha and beta orbitals"
-                    )
                 return restricted, restricted, True
     if alpha_raw is None or beta_raw is None:
         alpha_container = molecule.get("MolecularOrbitalsAlpha")
@@ -214,6 +217,44 @@ def _parse_spin_orbitals(molecule, ao_count, hf_type):
         _parse_orbital_set(beta_raw, ao_count, "beta"),
         False,
     )
+
+
+def _split_unlabelled_unrestricted(container, ao_count, multiplicity):
+    """Split ORCA's unlabelled unrestricted MO list into alpha and beta blocks.
+
+    ORCA 6 ``orca_2json`` writes a UHF/UKS wavefunction as one ``MOs`` list
+    without per-orbital spin labels: every alpha orbital first, then every beta
+    orbital. The split is accepted only when the two halves reproduce the spin
+    identity N_alpha - N_beta = multiplicity - 1, which an interleaved or
+    otherwise different layout cannot satisfy.
+    """
+
+    orbitals = container["MOs"]
+    if len(orbitals) % 2:
+        raise OrcaWavefunctionError(
+            "unrestricted ORCA JSON has an odd number of unlabelled MOs, so "
+            "alpha and beta orbitals cannot be identified"
+        )
+    half = len(orbitals) // 2
+    unit = container.get("EnergyUnit")
+    alpha = _parse_orbital_set({"EnergyUnit": unit, "MOs": orbitals[:half]}, ao_count, "alpha")
+    beta = _parse_orbital_set({"EnergyUnit": unit, "MOs": orbitals[half:]}, ao_count, "beta")
+    for spin, label in ((alpha, "alpha"), (beta, "beta")):
+        if np.any(spin.occupancies < -_OCCUPANCY_TOLERANCE) or np.any(
+            spin.occupancies > 1.0 + _OCCUPANCY_TOLERANCE
+        ):
+            raise OrcaWavefunctionError(
+                f"unrestricted ORCA {label} occupancies must lie between 0 and 1"
+            )
+    alpha_electrons = float(alpha.occupancies.sum())
+    beta_electrons = float(beta.occupancies.sum())
+    if abs(alpha_electrons - beta_electrons - (multiplicity - 1)) > _OCCUPANCY_TOLERANCE:
+        raise OrcaWavefunctionError(
+            "unrestricted ORCA JSON does not identify alpha and beta orbitals: "
+            f"its two MO blocks hold {alpha_electrons:g} and {beta_electrons:g} "
+            f"electrons, which does not match multiplicity {multiplicity}"
+        )
+    return alpha, beta
 
 
 def _parse_orbital_set(raw, ao_count, label):

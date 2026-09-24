@@ -34,8 +34,22 @@ class OrcaWblError(ValueError):
 class WblLinkerKind(StrEnum):
     SH = "SH"
     SME = "SMe"
+    NCS = "NCS"
     NH2 = "NH2"
     PYRIDINE = "Pyridine"
+
+
+# The electrode-binding element of every supported linker. NCS binds through
+# the terminal sulfur of R-N=C=S, like the other sulfur linkers.
+_SULFUR_CONTACT_LINKERS = frozenset(
+    {WblLinkerKind.SH, WblLinkerKind.SME, WblLinkerKind.NCS}
+)
+
+
+def contact_element_for_linker(linker: WblLinkerKind) -> str:
+    """Return the element one supported linker binds the electrode through."""
+
+    return "S" if WblLinkerKind(linker) in _SULFUR_CONTACT_LINKERS else "N"
 
 
 class WblParameterStatus(StrEnum):
@@ -46,6 +60,7 @@ class WblParameterStatus(StrEnum):
 
 class WblContactSubspaceMode(StrEnum):
     AUTO = "AUTO"
+    S_ALL_P_LEGACY = "S_ALL_P_LEGACY"
     S_3P_DIRECTIONAL = "S_3P_DIRECTIONAL"
     N_2S_2P_DIRECTIONAL = "N_2S_2P_DIRECTIONAL"
     N_2P_NORMAL = "N_2P_NORMAL"
@@ -119,6 +134,9 @@ class OrcaWblContactSettings:
         if self.subspace_mode is not WblContactSubspaceMode.MANUAL_AO and indices:
             raise OrcaWblError("manual AO indices are valid only in MANUAL_AO mode")
         object.__setattr__(self, "manual_ao_indices", indices)
+        if self.subspace_mode is WblContactSubspaceMode.S_ALL_P_LEGACY:
+            if self.linker is not WblLinkerKind.NCS:
+                raise OrcaWblError("the legacy all-p comparison is supported only for NCS")
 
     def require_runnable(self) -> None:
         if self.gamma0_ev is None:
@@ -135,6 +153,10 @@ class OrcaWblSettings:
     energy_min_relative_ev: float
     energy_max_relative_ev: float
     energy_step_ev: float
+    # Bond threshold factor of the connectivity this run interprets. It decides
+    # which linkers are recognized and which automatic contact direction is
+    # derived, so the reviewed value travels with the rest of the settings.
+    connectivity_multiplier: float
 
     def __post_init__(self) -> None:
         if not isinstance(self.left, OrcaWblContactSettings) or not isinstance(
@@ -153,6 +175,11 @@ class OrcaWblSettings:
             self,
             "energy_step_ev",
             _positive_finite(self.energy_step_ev, "energy step"),
+        )
+        object.__setattr__(
+            self,
+            "connectivity_multiplier",
+            _positive_finite(self.connectivity_multiplier, "bond threshold factor"),
         )
         if self.energy_min_relative_ev >= self.energy_max_relative_ev:
             raise OrcaWblError("energy minimum must be lower than energy maximum")
@@ -334,6 +361,7 @@ _VALENCE_ZETA_COUNT: dict[OrcaBasis, int] = {
 _WBL_LINKER_BY_ANCHOR_KIND = {
     AnchorKind.SH: WblLinkerKind.SH,
     AnchorKind.SMe: WblLinkerKind.SME,
+    AnchorKind.NCS: WblLinkerKind.NCS,
     AnchorKind.NH2: WblLinkerKind.NH2,
     AnchorKind.PYRIDINE_N: WblLinkerKind.PYRIDINE,
 }
@@ -360,14 +388,85 @@ def resolve_automatic_contact_subspace(
     connectivity: Connectivity,
     atom_index: int,
     linker: WblLinkerKind,
-) -> tuple[WblContactSubspaceMode, tuple[float, float, float]]:
+) -> tuple[WblContactSubspaceMode, tuple[float, float, float] | None]:
     """Expose the domain-owned automatic projection decision for UI explanation."""
 
     contact = OrcaWblContactSettings(
         atom_index=atom_index,
         linker=linker,
     )
-    return _resolved_mode_and_direction(structure, connectivity, contact)
+    return resolve_contact_projection_geometry(structure, connectivity, contact)
+
+
+def resolve_contact_projection_geometry(
+    structure: MolecularStructure,
+    connectivity: Connectivity,
+    contact: OrcaWblContactSettings,
+) -> tuple[WblContactSubspaceMode, tuple[float, float, float] | None]:
+    """Resolve one contact's projection mode and direction without a wavefunction.
+
+    An explicit subspace mode paired with an explicit direction is used exactly
+    as entered: the reviewer has already stated which contact orbital carries
+    the coupling, so distance-based connectivity no longer has to describe the
+    local environment. Every remaining case keeps the geometric derivation.
+    """
+
+    if contact.subspace_mode is WblContactSubspaceMode.MANUAL_AO:
+        return WblContactSubspaceMode.MANUAL_AO, contact.manual_direction
+    if contact.subspace_mode is WblContactSubspaceMode.S_ALL_P_LEGACY or (
+        contact.linker is WblLinkerKind.NCS
+        and contact.subspace_mode is WblContactSubspaceMode.AUTO
+    ):
+        if contact.manual_direction is not None:
+            raise OrcaWblError(
+                "NCS all-p projection has no direction; clear the override or "
+                "select an explicit directional projection"
+            )
+        return WblContactSubspaceMode.S_ALL_P_LEGACY, None
+    if contact.subspace_mode is not WblContactSubspaceMode.AUTO:
+        if contact.manual_direction is not None:
+            return contact.subspace_mode, contact.manual_direction
+        if contact.subspace_mode is WblContactSubspaceMode.N_2P_NORMAL:
+            return contact.subspace_mode, _neighbor_plane_normal(
+                structure, connectivity, contact.atom_index
+            )
+        _automatic, direction = _resolved_mode_and_direction(
+            structure, connectivity, contact
+        )
+        return contact.subspace_mode, direction
+    mode, direction = _resolved_mode_and_direction(structure, connectivity, contact)
+    if contact.manual_direction is not None:
+        return mode, contact.manual_direction
+    return mode, direction
+
+
+def manual_contact_direction(
+    structure: MolecularStructure,
+    contact_atom_index: int,
+    reference_atom_index: int,
+    *,
+    pointing_away: bool,
+) -> tuple[float, float, float]:
+    """Return the unit vector from a contact atom toward another atom.
+
+    Manual contacts need the same geometric construction the automatic modes
+    use, so the direction stays a molecular-geometry quantity instead of a
+    hand-typed vector.
+    """
+
+    for index in (contact_atom_index, reference_atom_index):
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or not 0 <= index < len(structure)
+        ):
+            raise OrcaWblError("contact direction atoms must be inside the structure")
+    if contact_atom_index == reference_atom_index:
+        raise OrcaWblError("contact direction requires two different atoms")
+    direction = _direction_between(structure, contact_atom_index, reference_atom_index)
+    if pointing_away:
+        return tuple(-value for value in direction)
+    return direction
 
 
 def calculate_orca_wbl(
@@ -398,11 +497,15 @@ def calculate_orca_wbl(
     sqrt_overlap = _symmetric_positive_sqrt(wavefunction.overlap)
     relative = np.asarray(settings.relative_energy_grid_ev, dtype=float)
     absolute = relative + settings.fermi_energy_ev
-    if wavefunction.multiplicity == 1:
-        if not wavefunction.restricted:
+    # The orbital evidence, not the multiplicity alone, selects the treatment.
+    # Unrestricted evidence always keeps both spin channels, including a
+    # multiplicity-1 UKS wavefunction: its beta orbitals are never discarded
+    # or assumed paired, and a closed-shell solution shows T_alpha = T_beta.
+    if wavefunction.restricted:
+        if wavefunction.multiplicity != 1:
             raise OrcaWblError(
-                "multiplicity-1 ORCA wavefunction is unrestricted; paired-electron "
-                "WBL treatment requires restricted orbital evidence"
+                "open-shell ORCA wavefunction does not provide separate alpha and "
+                "beta orbital evidence"
             )
         total, total_contributions = _spin_transmission(
             wavefunction.alpha,
@@ -425,11 +528,6 @@ def calculate_orca_wbl(
         spin_treatment = WblSpinTreatment.CLOSED_SHELL_SPIN_DEGENERATE
         top_total = _top_contributions(total_contributions)
     else:
-        if wavefunction.restricted:
-            raise OrcaWblError(
-                "open-shell ORCA wavefunction does not provide separate alpha and "
-                "beta orbital evidence"
-            )
         alpha_curve, alpha_contributions = _spin_transmission(
             wavefunction.alpha,
             sqrt_overlap,
@@ -509,7 +607,7 @@ def resolve_contact_projector(
 ) -> OrcaWblProjector:
     if contact.atom_index >= len(structure):
         raise OrcaWblError("contact atom index is outside the optimized structure")
-    expected_element = "S" if contact.linker in {WblLinkerKind.SH, WblLinkerKind.SME} else "N"
+    expected_element = contact_element_for_linker(contact.linker)
     if structure[contact.atom_index].element != expected_element:
         raise OrcaWblError(
             f"{contact.linker.value} contact atom must be {expected_element}"
@@ -534,6 +632,30 @@ def resolve_contact_projector(
             contact.manual_ao_indices,
             "USER_EXPLICIT_AO_INDICES",
         )
+    derived_mode, direction = resolve_contact_projection_geometry(
+        structure, connectivity, contact
+    )
+    functions = tuple(
+        function
+        for function in wavefunction.ao_functions
+        if function.atom_index == contact.atom_index
+    )
+    if derived_mode is WblContactSubspaceMode.S_ALL_P_LEGACY:
+        # Reproduce the original terminal-S population model, including compact
+        # radial p functions. This is not a pure valence-3p or directional model.
+        p_functions = tuple(function for function in functions if function.shell == "p")
+        if not p_functions:
+            raise OrcaWblError("NCS all-p projection requires sulfur p AO evidence")
+        for ordinal in {function.shell_ordinal for function in p_functions}:
+            shell = tuple(f for f in p_functions if f.shell_ordinal == ordinal)
+            if len(shell) != 3 or {f.component for f in shell} != {"x", "y", "z"}:
+                raise OrcaWblError("ORCA p-shell component evidence is incomplete")
+        indices = tuple(function.ao_index for function in p_functions)
+        return OrcaWblProjector(
+            contact.atom_index, contact.linker, derived_mode, None,
+            tuple(((index, 1.0),) for index in indices), indices,
+            "LEGACY_SELECTED_S_ALL_P_NO_RADIAL_OR_DIRECTION_FILTER",
+        )
     if basis is None:
         raise OrcaWblError(
             "automatic contact projection requires a reviewed explicit def2 basis; "
@@ -546,20 +668,6 @@ def resolve_contact_projector(
         raise OrcaWblError(
             "automatic contact projection does not support this basis; use manual AO mode"
         ) from None
-    derived_mode, direction = _resolved_mode_and_direction(
-        structure, connectivity, contact
-    )
-    if contact.subspace_mode is not WblContactSubspaceMode.AUTO:
-        derived_mode = contact.subspace_mode
-        if derived_mode is WblContactSubspaceMode.N_2P_NORMAL and contact.manual_direction is None:
-            direction = _neighbor_plane_normal(structure, connectivity, contact.atom_index)
-    if contact.manual_direction is not None:
-        direction = contact.manual_direction
-    functions = tuple(
-        function
-        for function in wavefunction.ao_functions
-        if function.atom_index == contact.atom_index
-    )
     vectors: list[tuple[tuple[int, float], ...]] = []
     if derived_mode in {
         WblContactSubspaceMode.N_2S_2P_DIRECTIONAL,
@@ -657,7 +765,10 @@ def _projector_weights(
             for index, coefficient in vector
         )
         result += amplitude * amplitude
-    result[np.abs(result) < 1.0e-14] = 0.0
+    if projector.resolved_mode is not WblContactSubspaceMode.S_ALL_P_LEGACY:
+        result[np.abs(result) < 1.0e-14] = 0.0
+    # Legacy population sums retain even tiny positive AO weights, as in the
+    # original script. Other projectors retain their existing numerical floor.
     if np.any(result < -1.0e-12) or not np.all(np.isfinite(result)):
         raise OrcaWblError("contact projection produced invalid weights")
     return result
@@ -684,7 +795,7 @@ def _resolved_mode_and_direction(structure, connectivity, contact):
         direction = _direction_between(structure, contact.atom_index, attached_au[0])
         mode = (
             WblContactSubspaceMode.S_3P_DIRECTIONAL
-            if contact.linker in {WblLinkerKind.SH, WblLinkerKind.SME}
+            if contact.linker in _SULFUR_CONTACT_LINKERS
             else WblContactSubspaceMode.N_2S_2P_DIRECTIONAL
         )
         return mode, direction
@@ -700,6 +811,19 @@ def _resolved_mode_and_direction(structure, connectivity, contact):
         carbons = tuple(index for index in non_au if structure[index].element == "C")
         if len(carbons) != 2:
             raise OrcaWblError("SMe automatic direction requires exactly two S-C bonds")
+        return WblContactSubspaceMode.S_3P_DIRECTIONAL, _opposite_bisector(
+            structure, contact.atom_index, carbons
+        )
+    if contact.linker is WblLinkerKind.NCS:
+        # R-N=C=S is linear at the terminal sulfur, so the only direction its
+        # geometry defines is the extension of the C=S axis away from carbon,
+        # which is where the electrode meets the sulfur.
+        carbons = tuple(index for index in non_au if structure[index].element == "C")
+        if len(non_au) != 1 or len(carbons) != 1:
+            raise OrcaWblError(
+                "NCS automatic direction requires exactly one terminal S-C bond "
+                "or one Au neighbor"
+            )
         return WblContactSubspaceMode.S_3P_DIRECTIONAL, _opposite_bisector(
             structure, contact.atom_index, carbons
         )

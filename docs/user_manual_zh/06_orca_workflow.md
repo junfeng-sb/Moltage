@@ -71,6 +71,14 @@ Moltage 会检查基本一致性，包括电子数与多重度的奇偶关系，
 
 **Resubmit Optimization...** 会根据此前保存的设置初始化一个新项目。如果上一个作业仍可能活动，Moltage 会先刷新对应的调度器作业，并且只取消经验证仍活动的作业。如果状态不明确，系统会停止重新提交，以免产生重复计算。
 
+### 导入已有优化结果
+
+无需先打开分子。选择 **Projects → Import Existing Calculation... → ORCA Optimization...**，选择已配置的服务器，输入或浏览至已完成的计算目录。点击 **Validate**；如果找到多组结果，明确选择所需的一组。检查项目名和目标目录后，点击 **Import**。
+
+源目录必须包含文件名前缀相同且非空的 `.inp`、`.out`、`.xyz` 和 `.gbw` 文件。Moltage 检查正常终止、优化收敛以及原子种类和顺序。支持内嵌 `* xyz` 坐标；受支持的 `*xyzfile` 输入还要求原始坐标文件可读取，导入时会将这些起始坐标写入新项目的输入文件。已有 Molden 文件不能替代 GBW。
+
+导入会在服务器工作区创建独立项目，并通过服务器端 SHA256 校验副本，不修改源目录，也不重新运行优化。在 Project Manager 中刷新导入的项目，打开 Step 1 的输出结构，再选择 **Calculation → ORCA → Step 2 — WBL Transmission...**。导入的 Step 1 没有由 Moltage 提交的调度器作业，因此不提供 **Resubmit Optimization...**。无法识别的方法或基组会明确保留为未确认状态；WBL 可能需要手动选择 AO，而不能使用自动接触轨道投影。
+
 ## 15.4 可选频率验证
 
 恢复已验证的优化结构后，选择 **Calculation → ORCA → Run Frequency...**。频率分析独立于 WBL，绝不会自动启动。
@@ -101,7 +109,7 @@ Moltage 对现有 GBW 运行转换工具，读取生成的波函数数据，在�
 
 ### 接触原子与 linker 识别
 
-当识别到两个无歧义且受支持的 linker 接触时，Moltage 会自动填写左、右接触原子。改变接触原子会同步更新识别到的 linker。支持的 linker 类型为 SH、SMe、NH2 和 pyridine。
+当识别到两个无歧义且受支持的 linker 接触时，Moltage 会自动填写左、右接触原子。改变接触原子会同步更新识别到的 linker。支持的 linker 类型为 SH、SMe、NCS（末端 S）、NH2 和 pyridine。
 
 若要手动选择，使用 **Manual select in viewer...**。设置对话框会暂时隐藏，分子查看器会显示原子编号；单击受支持的 S 或 N 原子即可填写该字段。系统按原子编号记录选择，不会把鼠标位置解释为任意三维坐标。
 
@@ -130,11 +138,15 @@ Moltage 对现有 GBW 运行转换工具，读取生成的波函数数据，在�
 - **Projection direction override**：接受可选的分子 XYZ 单位方向 `x, y, z`。留空则使用从几何推导的方向。
 - **Manual AO numbers**：只在 manual 模式中接受从 1 开始、以逗号分隔的 AO 索引。
 
-自动 sulfur projection 使用沿接触方向的价层 S 3p 函数，不会混入内层 S 2p 函数。自动 nitrogen projection 使用沿孤对电子/接触方向的 N 2s/2p 价层空间；在适用时，也可使用垂直于已识别局部平面的 N 2p 方向。这些是方向性轨道投影，不是键能计算。
+NCS 的 **Auto** 使用 **S all p orbitals — legacy NCS comparison (no direction)**：将所选硫原子上所有 p 型 AO 的 Löwdin 系数平方相加，包括紧缩的径向函数。自动识别会选择末端 S；手动覆盖为 NCS 则是用户指定，并不证明其连接拓扑已通过识别。它是明确的模型假设，不代表纯 3p 或已标定耦合。请将方向覆盖留空；若要比较方向性模型，先显式选择对应投影模式。读取已有结果不会重新计算；使用相同波函数、Γ₀、费米能级和能量采样重新运行 Step 2，即可比较两种模型。如果原 Step 2 已成功，可通过 **Resubmit Step 2 (WBL)...** 修改参数并替换结果。如需保留两份对照结果，请先导出旧数据，或将优化结果导入另一个项目，无需重新优化分子。
+
+SH 和 SMe 保留已有的 def2 价层硫轨道方向投影。氮接触使用沿孤对电子/接触方向的 N 2s/2p 价层空间；在适用时，也可使用垂直于已识别局部平面的 N 2p 方向。这些是轨道投影，不是键能计算。
 
 ## 15.8 启动并监控 Step 2
 
-选择 **Start Step 2**。应用会显示转换、波函数读取、计算、上传和验证进度。Project Manager 会立即把 ORCA 第二盏指示灯显示为活动状态；成功后变为绿色并启用 **View WBL Transmission**，失败后变为红色并保留明确诊断。
+首次计算时选择 **Start Step 2**。应用会显示转换、波函数读取、计算、上传和验证进度。Project Manager 会把 ORCA 第二盏指示灯显示为活动状态；成功后变为绿色并启用 **View WBL Transmission**，首次计算失败后变为红色并显示明确诊断。
+
+计算成功后，可在 Project Manager 选择 **Resubmit Step 2 (WBL)...**，也可以在该项目取回的 Geometry 标签页中重新打开 **Calculation → ORCA → Step 2 — WBL Transmission...**。界面会填入上次参数；修改后选择 **Recalculate Step 2**，成功后用新结果替换旧 WBL 结果，原优化文件保持不变。取消不会更改结果。重算失败且能够确认远端状态时，会恢复旧结果和旧参数；网络中断导致状态无法确认时，会明确报错，保留文件以及包含旧参数和校验值的项目记录副本。此时需要人工核查后才能继续，程序不会自动解锁或恢复状态不明的计算。运行期间不能重复提交；重算成功后，图像和 TXT 导出均使用新结果。
 
 生成的结果集合包括：
 
@@ -144,10 +156,22 @@ Moltage 对现有 GBW 运行转换工具，读取生成的波函数数据，在�
 
 已验证数据中的所有分子轨道都会参与曲线。JSON 还记录 E<sub>F</sub> 处贡献最大的轨道。结果哈希保存在项目清单中，并在之后显示前验证。
 
-![以对数坐标显示 transmission 曲线的 ORCA WBL 结果视图](../images/readme/orca-wbl-transmission-synthetic.png)
+![以对数坐标显示 transmission 曲线的 ORCA WBL 结果视图](../images/manual/orca-wbl-report-synthetic.png)
 
 **图 10.** 以对数坐标显示 transmission 曲线的 ORCA WBL 结果视图。图中数据
 用于演示，不是实验测量或真实生产 HPC 结果。
+
+### 调整 WBL 图像
+
+报告图默认用红色表示 Alpha、蓝色表示 Beta，以较细虚线表示原始 spin sum；闭壳层仍只显示一条总曲线。右侧列出本次费米能级、左右耦合及其依据标签、MO 数量，以及各自旋在 E<sub>F</sub> 处贡献最大的两个轨道。三角标记在完整曲线上标出这些 MO 的能量位置，并不意味着只计算这些轨道；超出当前横轴范围的轨道仍列在右侧。报告中的 MO 编号从 1 开始。旧结果缺少详情时会明确标为 unavailable，不自动推测。
+
+WBL 结果视图与 AITRANSS transmission 视图使用同一套显示控件。WBL 标签页处于活动状态时，选择 **Settings → View...** 打开五页 Transmission View Settings 对话框，各页控件见[第 16 节](07_analysis_and_results.md)。双击坐标轴打开对应轴页面；双击曲线打开 **Curve**；双击空白画布打开 **Canvas**。
+
+已验证的 unrestricted 结果在 **Curve** 页列出 Alpha、Beta 和 spin sum；multiplicity 为 1 的 restricted 结果只列出自旋简并总曲线。指针移近曲线可读取最近样本及曲线名称；单击固定读数，方向键在可见样本间步进。
+
+**Apply** 只改变显示，不会改写结果或哈希。**Reset View** 恢复已保存的能量窗口与默认 transmission 范围；**File → Export Current View...** 按请求的比例保存图表及右侧报告。
+
+**Export Transmission Data...** 导出完整网格为 Igor 制表符 `.txt`，不受视图影响：首列 `energy_minus_EF_eV`（eV）；闭壳层另有 `transmission`；自旋分辨另有 Alpha、Beta、total transmission，均无量纲。
 
 ## 15.9 解释 WBL 结果
 
@@ -155,6 +179,6 @@ Moltage 对现有 GBW 运行转换工具，读取生成的波函数数据，在�
 
 对于已验证的 unrestricted 开壳层证据，Moltage 显示 Alpha、Beta 和原始 spin sum。Alpha 和 Beta 是采用 e²/h 约定的逐自旋 transmission；以 G<sub>0</sub> 为单位报告电导时，应使用 G/G<sub>0</sub> = (T<sub>α</sub> + T<sub>β</sub>) / 2。
 
-纵轴采用以 10 为底的对数坐标，并用 10<sup>−3</sup> 这样的规范幂指数排版。非正样本不会被替换为人为下限。该模型始终是 linker 参数化、独立共振的 WBL **HYPOTHESIS**，不是显式 Au–molecule–Au DFT-NEGF 计算，也不应如此描述。
+纵轴为 10 底对数坐标，刻度用 10<sup>−3</sup> 等幂指数；横轴为 Energy − E<sub>F</sub> (eV)。非正样本不以人为下限替代。结果是 linker 参数化的独立共振 WBL **HYPOTHESIS**，并非显式 Au–molecule–Au DFT-NEGF。
 
 [下一章：分析与结果](07_analysis_and_results.md)

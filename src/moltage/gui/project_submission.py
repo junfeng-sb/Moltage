@@ -93,6 +93,33 @@ class SubmissionErrorPresentation:
     message: str
 
 
+def orca_runtime_unavailable_message(profile: ServerProfile) -> str:
+    """Explain why ORCA submission is blocked for one server profile.
+
+    A typed ORCA path is only a hint until it has been validated on the server;
+    submission requires the validated runtime, so the two states are named
+    separately instead of one generic instruction.
+    """
+
+    hint = profile.runtime_hints.orca if profile.runtime_hints is not None else None
+    if hint is not None and hint.location:
+        return (
+            f"The ORCA path saved for {profile.name} has not been validated, so "
+            "ORCA submission is unavailable. Open Cluster Settings..., go to the "
+            "ORCA tab, click Validate Manual Path, then Save."
+        )
+    preset = profile.execution_preset
+    action = (
+        "click Validate Manual Path"
+        if preset is not None and preset.scheduler_kind is SchedulerKind.LSF
+        else "click Discover ORCA or Validate Manual Path"
+    )
+    return (
+        f"No validated ORCA installation is configured for {profile.name}. "
+        f"Open Cluster Settings..., go to the ORCA tab, {action}, then Save."
+    )
+
+
 class NewCalculationProjectDialog(QDialog):
     """Confirm server, safe project stem, and an explicit supported start."""
 
@@ -101,7 +128,7 @@ class NewCalculationProjectDialog(QDialog):
         profiles: Iterable[ServerProfile],
         last_selected_profile_id: UUID | None,
         default_base_name: str,
-        recommendation: StartStepRecommendation,
+        recommendation: StartStepRecommendation | None,
         *,
         preview_date: date,
         cluster_settings_callback: (
@@ -117,7 +144,9 @@ class NewCalculationProjectDialog(QDialog):
             raise TypeError("profiles must contain ServerProfile records")
         if not checked_profiles:
             raise ValueError("at least one saved server profile is required")
-        if not isinstance(recommendation, StartStepRecommendation):
+        if recommendation is not None and not isinstance(
+            recommendation, StartStepRecommendation
+        ):
             raise TypeError("recommendation must be a StartStepRecommendation")
         if not isinstance(preview_date, date):
             raise TypeError("preview date must be a date")
@@ -138,6 +167,13 @@ class NewCalculationProjectDialog(QDialog):
             and preselected_engine is CalculationWorkflowKind.ORCA
         ):
             raise ValueError("fixed FHI-aims project start cannot use ORCA")
+        if (
+            recommendation is None
+            and preselected_engine is not CalculationWorkflowKind.ORCA
+        ):
+            raise ValueError(
+                "FHI-aims start-step advice is required unless the engine is fixed to ORCA"
+            )
 
         self._preview_date = preview_date
         self._cluster_settings_callback = cluster_settings_callback
@@ -148,6 +184,7 @@ class NewCalculationProjectDialog(QDialog):
         layout = QVBoxLayout(self)
 
         form = QFormLayout()
+        self._form = form
         self._server = QComboBox(self)
         self._server.setObjectName("submissionServerProfile")
         for item in checked_profiles:
@@ -185,7 +222,7 @@ class NewCalculationProjectDialog(QDialog):
         self._base_name.setObjectName("submissionProjectBaseName")
         form.addRow("Project name:", self._base_name)
 
-        self._detected = QLabel(recommendation.reason, self)
+        self._detected = QLabel(self)
         self._detected.setObjectName("submissionDetectedStructure")
         self._detected.setWordWrap(True)
         form.addRow("Detected structure:", self._detected)
@@ -251,6 +288,7 @@ class NewCalculationProjectDialog(QDialog):
 
     @Slot()
     def _refresh(self, *_ignored) -> None:
+        self._refresh_detected_structure()
         profile = self._current_profile()
         base_name = self._base_name.text()
         try:
@@ -278,9 +316,7 @@ class NewCalculationProjectDialog(QDialog):
             and profile.orca_runtime is None
         ):
             self._cluster_summary.setText(resource_summary(preset))
-            self._cluster_status.setText(
-                f"Configure and validate ORCA for {profile.name} before submitting."
-            )
+            self._cluster_status.setText(orca_runtime_unavailable_message(profile))
         else:
             self._cluster_summary.setText(resource_summary(preset))
             self._cluster_status.clear()
@@ -313,6 +349,22 @@ class NewCalculationProjectDialog(QDialog):
                 or profile.orca_runtime is not None
             )
         )
+
+    def _refresh_detected_structure(self) -> None:
+        """Show FHI-aims contact-Au start advice only for the FHI-aims engine.
+
+        ORCA molecular optimization neither detects nor requires contact Au, so
+        the row is hidden rather than filled with an irrelevant statement.
+        """
+
+        is_fhi = self._current_workflow() is CalculationWorkflowKind.FHI_AIMS_AITRANSS
+        self._form.setRowVisible(self._detected, is_fhi)
+        if not is_fhi:
+            self._detected.clear()
+            return
+        if self._recommendation is None:
+            raise RuntimeError("FHI-aims start-step advice is unavailable")
+        self._detected.setText(self._recommendation.reason)
 
     @Slot()
     def _engine_changed(self, *_ignored) -> None:

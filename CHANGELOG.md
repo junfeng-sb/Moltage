@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2 — Pre-release
+
+- Import completed remote ORCA optimizations and continue directly to WBL analysis.
+- Recalculate WBL Step 2 with new parameters and safely replace previous results.
+- Export transmission as tab-delimited TXT for Igor Pro and other analysis tools.
+- Restore the NCS terminal-sulfur all-p comparison model with explicit provenance.
+- Improve WBL plots with model summaries, leading-MO markers, per-curve styling, axis controls, and curve readouts.
+- Avoid large wavefunction downloads during ORCA status refresh by verifying SHA256 on the server.
+- Remember the accepted Bond Detection factor across restarts.
+
 ## 0.1.13 to 0.2.1
 
 - Added separate ORCA runtime configuration and a two-stage Optimization → WBL workflow, with optional frequency analysis.

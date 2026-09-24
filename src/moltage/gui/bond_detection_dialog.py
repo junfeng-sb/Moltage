@@ -1,4 +1,4 @@
-"""Small session-local editor for the connectivity threshold factor."""
+"""Editor for the locally remembered connectivity threshold factor."""
 
 import math
 

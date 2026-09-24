@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.1">Download v0.2.1</a>
+  <a href="https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.2">Download v0.2.2</a>
   · <a href="docs/user_manual/README.md">User Manual</a>
   · <a href="docs/user_manual_zh/README.md">中文手册</a>
   · <a href="docs/WORKFLOW.md">Workflows</a>
@@ -21,7 +21,7 @@
   · <a href="LICENSE">GPL-3.0-only</a>
 </p>
 
-> **Development release:** v0.2.1 is an early public checkpoint. Review all
+> **Development release:** v0.2.2 is an early public checkpoint. Review all
 > scientific inputs independently and retain the generated provenance records.
 > Moltage's offline tests validate application logic; they do not certify a
 > particular ORCA, FHI-aims, AITRANSS, SSH, scheduler, or HPC installation.
@@ -134,22 +134,22 @@ the programs required by the workflow they intend to run.
 FHI-aims, AITRANSS and ORCA are **not bundled**. Users must provide properly
 licensed installations and valid access to the selected server.
 
-## Install v0.2.1
+## Install v0.2.2
 
 The packaged application targets 64-bit Windows.
 
-1. Open the [v0.2.1 release](https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.1).
-2. Download `Moltage-Setup-0.2.1.exe` and its adjacent `.sha256` file.
+1. Open the [v0.2.2 release](https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.2).
+2. Download `Moltage-Setup-0.2.2.exe` and its adjacent `.sha256` file.
 3. Verify the installer:
 
    ```powershell
-   Get-FileHash .\Moltage-Setup-0.2.1.exe -Algorithm SHA256
+   Get-FileHash .\Moltage-Setup-0.2.2.exe -Algorithm SHA256
    ```
 
 4. Compare the reported hash with the published checksum, then run the
    installer.
 
-The v0.2.1 development installer is unsigned, so Windows SmartScreen may show
+The v0.2.2 development installer is unsigned, so Windows SmartScreen may show
 an unrecognized-publisher warning. The checksum verifies file integrity; it
 does not establish publisher identity.
 

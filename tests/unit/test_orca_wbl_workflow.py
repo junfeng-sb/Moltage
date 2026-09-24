@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from unittest.mock import patch
 from hashlib import sha256
 import json
 from pathlib import Path, PurePosixPath
@@ -42,7 +43,9 @@ from moltage.orca.wbl import (
     WblContactSubspaceMode,
     WblLinkerKind,
     WblParameterStatus,
+    calculate_orca_wbl,
 )
+from moltage.structure.connectivity import DEFAULT_CONNECTIVITY_MULTIPLIER
 from moltage.orca.catalog import OrcaFrequencyMode
 from moltage.orca.settings import OrcaFrequencySettings
 from moltage.remote.executor import RemoteCommandResult, RemotePathNotFoundError
@@ -153,6 +156,33 @@ class WblRemoteExecutor(OrcaRemoteExecutor):
         super().rename(source, destination)
 
     def execute(self, command: str) -> RemoteCommandResult:
+        if command.startswith(("test -d ", "test -f ")):
+            self.operations.append(("execute", command))
+            for check in command.split(" && "):
+                args = shlex.split(check)
+                if args[1] == "-d" and args[2] not in self.directories:
+                    return RemoteCommandResult(1, b"", b"missing directory")
+                if args[1] == "-f" and args[2] not in self.files:
+                    return RemoteCommandResult(1, b"", b"missing file")
+                if args[0] == "rmdir":
+                    if any(path.startswith(args[2] + "/") for path in (*self.files, *self.directories)):
+                        return RemoteCommandResult(1, b"", b"not empty")
+                    self.directories.remove(args[2])
+                # This fake has only regular files/directories, no symlinks.
+            return RemoteCommandResult(0, b"", b"")
+        if command.startswith("rm -f -- "):
+            self.operations.append(("execute", command))
+            parts = command.split(" && ")
+            remove = parts[0]
+            for path in shlex.split(remove)[3:]:
+                self.files.pop(path, None)
+            if len(parts) == 1:
+                return RemoteCommandResult(0, b"", b"")
+            directory = shlex.split(parts[1])[2]
+            if any(path.startswith(directory + "/") for path in self.files):
+                return RemoteCommandResult(1, b"", b"not empty")
+            self.directories.remove(directory)
+            return RemoteCommandResult(0, b"", b"")
         if "__MOLTAGE_ORCA_2MKL__" in command:
             self.operations.append(("execute", command))
             return RemoteCommandResult(
@@ -213,6 +243,7 @@ def _settings() -> OrcaWblSettings:
         -2.0,
         2.0,
         0.2,
+        DEFAULT_CONNECTIVITY_MULTIPLIER,
     )
 
 
@@ -550,3 +581,424 @@ def test_missing_sibling_orca_2json_fails_without_a_bare_path_fallback():
     commands = [value for operation, value in remote.operations if operation == "execute"]
     assert len(commands) == 1
     assert "command -v" not in commands[0]
+
+
+def test_wbl_interprets_bonds_with_the_reviewed_threshold_factor():
+    """The factor the user reviewed decides the bonds the projection sees."""
+
+    with TemporaryDirectory() as directory:
+        index = LocalProjectIndexRepository(Path(directory) / "known_projects.json")
+        remote = WblRemoteExecutor()
+        optimized, _recovery = _optimized_project(remote, index)
+        service = OrcaWblService(
+            FixedConnectionService(remote),
+            index,
+            now_factory=lambda: NOW,
+            temporary_id_factory=lambda: "synthetic-wbl",
+        )
+        # The synthetic S-C-S geometry bonds both sulfurs to each other at the
+        # 1.10 inference default and keeps them apart at 0.80.
+        reviewed = replace(_settings(), connectivity_multiplier=0.80)
+        observed = []
+        real_calculation = calculate_orca_wbl
+
+        def capture(wavefunction, structure, connectivity, settings, *, basis):
+            observed.append(connectivity)
+            return real_calculation(
+                wavefunction, structure, connectivity, settings, basis=basis
+            )
+
+        with patch("moltage.app.orca_wbl.calculate_orca_wbl", side_effect=capture):
+            result = service.calculate(
+                OrcaWblRequest(
+                    configured_profile(),
+                    optimized.project.remote_project_path,
+                    reviewed,
+                    "synthetic-password",
+                )
+            )
+
+        assert len(observed) == 1
+        bonds = {
+            (bond.first_index, bond.second_index) for bond in observed[0]
+        }
+        assert bonds == {(0, 1), (1, 2)}
+        persisted = parse_project_manifest(
+            remote.files[
+                f"{optimized.project.remote_project_path}/.moltage/project.json"
+            ]
+        )
+        assert persisted.steps[1].orca_wbl_settings.connectivity_multiplier == 0.80
+        assert result.project.steps[1].state is ProjectStepState.SUCCEEDED
+
+
+def test_a_failed_wbl_stage_can_retry_but_finished_result_needs_explicit_replacement():
+    with TemporaryDirectory() as directory:
+        index = LocalProjectIndexRepository(Path(directory) / "known_projects.json")
+        remote = WblRemoteExecutor()
+        optimized, _recovery = _optimized_project(remote, index)
+        root = optimized.project.remote_project_path
+        service = OrcaWblService(
+            FixedConnectionService(remote),
+            index,
+            now_factory=lambda: NOW,
+            temporary_id_factory=lambda: "synthetic-wbl",
+        )
+        request = OrcaWblRequest(
+            configured_profile(), root, _settings(), "synthetic-password"
+        )
+        usable_json = remote.wavefunction_json
+        remote.wavefunction_json = b'{"Molecule": {}}\n'
+
+        with pytest.raises(OrcaWblServiceError, match="no atom/basis evidence"):
+            service.calculate(request)
+        failed = parse_project_manifest(remote.files[f"{root}/.moltage/project.json"])
+        assert failed.steps[1].state is ProjectStepState.FAILED
+
+        remote.wavefunction_json = usable_json
+        result = service.calculate(request)
+
+        kinds = [step.kind for step in result.project.steps]
+        assert kinds.count(ProjectStepKind.ORCA_WBL_TRANSMISSION) == 1
+        assert result.project.steps[1].state is ProjectStepState.SUCCEEDED
+        assert result.project.steps[1].last_error is None
+        with pytest.raises(OrcaWblServiceError, match="Confirm replacement"):
+            service.calculate(request)
+
+
+@pytest.fixture
+def completed_wbl_run(tmp_path):
+    index = LocalProjectIndexRepository(tmp_path / "known_projects.json")
+    remote = WblRemoteExecutor()
+    optimized, recovery = _optimized_project(remote, index)
+    service = OrcaWblService(
+        FixedConnectionService(remote), index,
+        now_factory=lambda: NOW,
+        temporary_id_factory=lambda: "synthetic-replacement",
+    )
+    first_request = OrcaWblRequest(
+        configured_profile(), optimized.project.remote_project_path,
+        _settings(), "synthetic-password",
+    )
+    first = service.calculate(first_request)
+    request = replace(
+        first_request,
+        settings=replace(_settings(), energy_step_ev=0.1, fermi_energy_ev=-4.8),
+        replace_existing_result=first.project.steps[1].orca_wbl_result,
+    )
+    return remote, service, recovery, first, request
+
+
+def test_successful_wbl_can_replace_only_step_2_with_new_parameters(completed_wbl_run):
+    remote, service, recovery, first, request = completed_wbl_run
+    root = request.remote_project_path
+    optimization_files = {
+        path: data for path, data in remote.files.items()
+        if path.startswith(root + "/orca_opt.")
+    }
+    old_csv = remote.files[f"{root}/wbl/orca_wbl_transmission.csv"]
+    previous_submits = remote.submit_count
+    remote.operations.clear()
+    updates = []
+
+    result = service.calculate(request, project_updated=updates.append)
+
+    assert [item.steps[1].state for item in updates] == [
+        ProjectStepState.RUNNING, ProjectStepState.SUCCEEDED,
+    ]
+    assert len(result.project.steps) == 2
+    assert result.project.steps[0] == first.project.steps[0]
+    assert result.project.steps[1].orca_wbl_settings == request.settings
+    assert result.project.steps[1].orca_wbl_result != request.replace_existing_result
+    assert remote.files[f"{root}/wbl/orca_wbl_transmission.csv"] != old_csv
+    assert all(remote.files[path] == data for path, data in optimization_files.items())
+    assert remote.submit_count == previous_submits
+    assert not any(".wbl.previous-" in path for path in remote.directories)
+    assert not any(".wbl.previous-" in path for path in remote.files)
+    assert not any("wbl-previous-" in path for path in remote.files)
+    assert not any(
+        op[0] == "read_bytes" and (
+            op[1].endswith(".gbw") or "/wbl/" in op[1] or "/.wbl." in op[1]
+        ) for op in remote.operations
+    ), "Result verification must hash on the server, not download large artifacts"
+    refreshed = recovery.refresh_project(
+        request.profile, root, supplied_password="synthetic-password",
+    )
+    assert refreshed.project.steps[1] == result.project.steps[1]
+    assert refreshed.can_view_orca_wbl
+    assert len(refreshed.orca_wbl_presentation.energy_relative_ev) == 41
+    assert refreshed.orca_wbl_presentation.report.fermi_energy_ev == -4.8
+
+
+@pytest.mark.parametrize("authorization", ["missing", "stale"])
+def test_replacement_needs_the_current_successful_result(completed_wbl_run, authorization):
+    remote, service, _, _, request = completed_wbl_run
+    if authorization == "missing":
+        request = replace(request, replace_existing_result=None)
+    else:
+        service.calculate(request)  # Makes the first result's authorization stale.
+    before_files, before_directories = dict(remote.files), set(remote.directories)
+    with pytest.raises(OrcaWblServiceError, match="Confirm replacement"):
+        service.calculate(request)
+    assert remote.files == before_files
+    assert remote.directories == before_directories
+
+
+@pytest.mark.parametrize("failure", [
+    "conversion", "upload", "backup-rename", "publish-rename", "publish-ack", "manifest",
+])
+def test_failed_replacement_restores_previous_manifest_and_results(
+    completed_wbl_run, monkeypatch, failure,
+):
+    remote, service, recovery, first, request = completed_wbl_run
+    root = request.remote_project_path
+    old_files = {p: data for p, data in remote.files.items() if p.startswith(root + "/wbl/")}
+    original_rename = remote.rename
+    original_write = remote.write_bytes
+    original_persist = RemoteProjectRepository.persist_update
+    failed = False
+
+    def rename(source, destination):
+        nonlocal failed
+        target = (
+            failure == "backup-rename" and destination == root + "/.wbl.previous-synthetic-replacement"
+        ) or (failure in {"publish-rename", "publish-ack"} and destination == root + "/wbl")
+        if target and not failed:
+            failed = True
+            if failure == "publish-ack":
+                original_rename(source, destination)
+            raise RuntimeError("synthetic publication interruption")
+        return original_rename(source, destination)
+
+    def write(path, data):
+        if failure == "upload" and "/.wbl.tmp-" in path:
+            raise RuntimeError("synthetic upload interruption")
+        return original_write(path, data)
+
+    def persist(repository, project, **kwargs):
+        nonlocal failed
+        if (
+            failure == "manifest" and not failed
+            and project.steps[1].state is ProjectStepState.SUCCEEDED
+        ):
+            failed = True
+            raise RuntimeError("synthetic manifest interruption")
+        return original_persist(repository, project, **kwargs)
+
+    monkeypatch.setattr(remote, "rename", rename)
+    monkeypatch.setattr(remote, "write_bytes", write)
+    monkeypatch.setattr(RemoteProjectRepository, "persist_update", persist)
+    if failure == "conversion":
+        remote.wavefunction_json = b"{}"
+    with pytest.raises(OrcaWblServiceError, match="previous WBL parameters and result were restored"):
+        service.calculate(request)
+    persisted = RemoteProjectRepository(remote).load(root)
+    assert persisted.steps == first.project.steps
+    assert {p: data for p, data in remote.files.items() if p.startswith(root + "/wbl/")} == old_files
+    assert not any(".wbl.previous-" in path for path in remote.directories)
+    assert not any(".wbl.tmp-" in path for path in remote.directories)
+    assert not any(".wbl.previous-" in path for path in remote.files)
+    assert not any("wbl-previous-" in path for path in remote.files)
+    refreshed = recovery.refresh_project(request.profile, root, supplied_password="synthetic-password")
+    assert refreshed.can_view_orca_wbl
+    assert refreshed.project.steps[1].orca_wbl_settings == first.project.steps[1].orca_wbl_settings
+
+
+def test_lost_completion_ack_is_verified_without_undoing_success(completed_wbl_run, monkeypatch):
+    remote, service, _, _, request = completed_wbl_run
+    original_persist = RemoteProjectRepository.persist_update
+
+    def persist(repository, project, **kwargs):
+        result = original_persist(repository, project, **kwargs)
+        if project.steps[1].state is ProjectStepState.SUCCEEDED:
+            raise RuntimeError("synthetic lost acknowledgement after commit")
+        return result
+
+    monkeypatch.setattr(RemoteProjectRepository, "persist_update", persist)
+    messages = []
+    result = service.calculate(request, progress=messages.append)
+    assert result.project == RemoteProjectRepository(remote).load(request.remote_project_path)
+    assert result.project.steps[1].orca_wbl_settings == request.settings
+    assert any("committed result was verified" in message for message in messages)
+
+
+def test_lost_start_ack_requires_matching_running_record(completed_wbl_run, monkeypatch):
+    remote, service, _, _, request = completed_wbl_run
+    original_persist = RemoteProjectRepository.persist_update
+
+    def persist(repository, project, **kwargs):
+        result = original_persist(repository, project, **kwargs)
+        if project.steps[1].state is ProjectStepState.RUNNING:
+            raise RuntimeError("synthetic lost acknowledgement after start")
+        return result
+
+    monkeypatch.setattr(RemoteProjectRepository, "persist_update", persist)
+    result = service.calculate(request)
+    assert result.project.steps[1].state is ProjectStepState.SUCCEEDED
+    assert result.project == RemoteProjectRepository(remote).load(request.remote_project_path)
+
+
+def test_existing_conversion_directory_is_not_deleted_on_mkdir_failure(completed_wbl_run):
+    remote, service, _, first, request = completed_wbl_run
+    unrelated = "/tmp/moltage-orca-wbl-synthetic-replacement"
+    remote.directories.add(unrelated)
+    remote.files[unrelated + "/unrelated-data.txt"] = b"not owned by this run"
+    with pytest.raises(OrcaWblServiceError, match="previous WBL parameters and result were restored"):
+        service.calculate(request)
+    assert remote.files[unrelated + "/unrelated-data.txt"] == b"not owned by this run"
+    assert RemoteProjectRepository(remote).load(request.remote_project_path).steps == first.project.steps
+
+
+def test_failed_backup_cleanup_keeps_new_result_and_reports_old_location(completed_wbl_run, monkeypatch):
+    remote, service, _, _, request = completed_wbl_run
+    original_execute = remote.execute
+
+    def execute(command):
+        if command.startswith("rm -f -- "):
+            return RemoteCommandResult(1, b"", b"synthetic permission failure")
+        return original_execute(command)
+
+    monkeypatch.setattr(remote, "execute", execute)
+    result = service.calculate(request)
+    assert result.project.steps[1].state is ProjectStepState.SUCCEEDED
+    assert result.project.steps[1].orca_wbl_settings == request.settings
+    assert ".wbl.previous-" in result.cleanup_warning
+    assert any(".wbl.previous-" in path for path in remote.files)
+
+
+def test_unverified_previous_artifacts_are_never_overwritten(completed_wbl_run):
+    remote, service, _, _, request = completed_wbl_run
+    remote.files[request.remote_project_path + "/wbl/user-notes.txt"] = b"user-owned note"
+    before = dict(remote.files)
+    with pytest.raises(OrcaWblServiceError, match="differs from recorded artifacts"):
+        service.calculate(request)
+    assert remote.files == before
+
+
+def test_unknown_manifest_outcome_preserves_both_result_sets(completed_wbl_run, monkeypatch):
+    remote, service, _, first, request = completed_wbl_run
+    original_persist = RemoteProjectRepository.persist_update
+    original_load = RemoteProjectRepository.load
+    disconnected = False
+
+    def persist(repository, project, **kwargs):
+        nonlocal disconnected
+        if project.steps[1].state is ProjectStepState.SUCCEEDED:
+            disconnected = True
+            raise RuntimeError("synthetic connection loss")
+        return original_persist(repository, project, **kwargs)
+
+    def load(repository, path, **kwargs):
+        if disconnected:
+            raise RuntimeError("synthetic connection unavailable")
+        return original_load(repository, path, **kwargs)
+
+    monkeypatch.setattr(RemoteProjectRepository, "persist_update", persist)
+    monkeypatch.setattr(RemoteProjectRepository, "load", load)
+    with pytest.raises(OrcaWblServiceError, match="outcome/rollback could not be verified"):
+        service.calculate(request)
+    assert request.remote_project_path + "/wbl/orca_wbl_result.json" in remote.files
+    backups = {PurePosixPath(p).name: sha256(data).hexdigest() for p, data in remote.files.items() if "/.wbl.previous-synthetic-replacement/" in p}
+    assert backups == dict(first.project.steps[1].orca_wbl_result.artifact_hashes)
+    snapshot = remote.files[request.remote_project_path + "/wbl-previous-synthetic-replacement.project.json"]
+    assert parse_project_manifest(snapshot) == first.project
+
+
+def test_connection_loss_during_conversion_retains_prior_project_and_hashes(completed_wbl_run, monkeypatch):
+    remote, service, _, first, request = completed_wbl_run
+    original_execute = remote.execute
+    original_load = RemoteProjectRepository.load
+    disconnected = False
+
+    def execute(command):
+        nonlocal disconnected
+        if "orca_wbl.gbw -json" in command:
+            disconnected = True
+            raise RuntimeError("synthetic lost connection during conversion")
+        return original_execute(command)
+
+    def load(repository, path, **kwargs):
+        if disconnected:
+            raise RuntimeError("synthetic disconnected")
+        return original_load(repository, path, **kwargs)
+
+    monkeypatch.setattr(remote, "execute", execute)
+    monkeypatch.setattr(RemoteProjectRepository, "load", load)
+    with pytest.raises(OrcaWblServiceError, match="previous project settings and checksums are retained") as failure:
+        service.calculate(request)
+    snapshot_path = request.remote_project_path + "/wbl-previous-synthetic-replacement.project.json"
+    assert snapshot_path in str(failure.value)
+    previous = parse_project_manifest(remote.files[snapshot_path])
+    assert previous == first.project
+    for name, digest in previous.steps[1].orca_wbl_result.artifact_hashes:
+        assert sha256(remote.files[request.remote_project_path + "/wbl/" + name]).hexdigest() == digest
+    running = parse_project_manifest(remote.files[request.remote_project_path + "/.moltage/project.json"])
+    assert running.steps[1].state is ProjectStepState.RUNNING
+
+
+def test_committed_replacement_survives_local_index_failure(completed_wbl_run, monkeypatch):
+    remote, service, _, _, request = completed_wbl_run
+    original_mark = service._local_index_repository.mark_seen
+
+    def mark(project, **kwargs):
+        if project.steps[1].state is ProjectStepState.SUCCEEDED:
+            raise OSError("synthetic local disk full")
+        return original_mark(project, **kwargs)
+
+    monkeypatch.setattr(service._local_index_repository, "mark_seen", mark)
+    result = service.calculate(request)
+    assert "local project index update failed" in result.cleanup_warning
+    assert result.project == RemoteProjectRepository(remote).load(request.remote_project_path)
+    assert result.project.steps[1].state is ProjectStepState.SUCCEEDED
+
+
+def test_partial_upload_with_unverified_bytes_is_retained_and_reported(completed_wbl_run, monkeypatch):
+    remote, service, _, first, request = completed_wbl_run
+    original_write = remote.write_bytes
+
+    def write(path, data):
+        if "/.wbl.tmp-" in path:
+            original_write(path, b"partial synthetic upload")
+            raise OSError("synthetic interrupted upload")
+        return original_write(path, data)
+
+    monkeypatch.setattr(remote, "write_bytes", write)
+    with pytest.raises(OrcaWblServiceError, match="temporary result cleanup needs attention") as failure:
+        service.calculate(request)
+    assert "/.wbl.tmp-synthetic-replacement" in str(failure.value)
+    assert RemoteProjectRepository(remote).load(request.remote_project_path).steps == first.project.steps
+    assert any(data == b"partial synthetic upload" for data in remote.files.values())
+
+
+def test_failed_recovery_snapshot_upload_does_not_start_rerun(completed_wbl_run, monkeypatch):
+    remote, service, _, first, request = completed_wbl_run
+    original_write = remote.write_bytes
+
+    def write(path, data):
+        if "wbl-previous-" in path:
+            original_write(path, b"partial synthetic manifest")
+            raise OSError("synthetic interrupted snapshot upload")
+        return original_write(path, data)
+
+    monkeypatch.setattr(remote, "write_bytes", write)
+    with pytest.raises(OrcaWblServiceError, match="run was not started") as failure:
+        service.calculate(request)
+    assert "wbl-previous-synthetic-replacement.project.json.tmp-synthetic-replacement" in str(failure.value)
+    assert RemoteProjectRepository(remote).load(request.remote_project_path) == first.project
+
+
+def test_lost_staging_mkdir_ack_reports_retained_directory(completed_wbl_run, monkeypatch):
+    remote, service, _, first, request = completed_wbl_run
+    original_mkdir = remote.mkdir
+
+    def mkdir(path):
+        original_mkdir(path)
+        if "/.wbl.tmp-" in path:
+            raise OSError("synthetic lost mkdir acknowledgement")
+
+    monkeypatch.setattr(remote, "mkdir", mkdir)
+    with pytest.raises(OrcaWblServiceError, match="staging creation could not be confirmed") as failure:
+        service.calculate(request)
+    assert "/.wbl.tmp-synthetic-replacement" in str(failure.value)
+    assert request.remote_project_path + "/.wbl.tmp-synthetic-replacement" in remote.directories
+    assert RemoteProjectRepository(remote).load(request.remote_project_path).steps == first.project.steps
