@@ -2820,7 +2820,7 @@ class MoleculeViewerDemo(QMainWindow):
         QMessageBox.about(
             self,
             "About Moltage",
-            "<b>Moltage 0.2.2</b><br>"
+            "<b>Moltage 0.2.2.1</b><br>"
             "Single-Molecule Quantum Transport &amp; Analysis Workbench"
             "<br><br>Copyright &copy; 2026 Junfeng Lin."
             "<br>Licensed under GNU GPL version 3 only."

@@ -71,7 +71,7 @@ filename blocks submission before a project directory is created.
 The **FHI-aims Optimization Settings** dialog separates general, spin, charge,
 output, and atom-override settings.
 
-| Setting | v0.2.2 initial value | Purpose |
+| Setting | v0.2.2.1 initial value | Purpose |
 | --- | --- | --- |
 | **Functional** | PBE | Select the supported XC token |
 | **vdW** | TS-Hirshfeld | Select none, TS-Hirshfeld, or TS-libMBD |
@@ -314,7 +314,7 @@ submission.
 | `$nlayers` | Independent AITRANSS electrode-layer parameter |
 | **Source** | `AIMS_RECOMMENDED`, `USER_SPECIFIED`, or missing-evidence explanation |
 
-Initial `$nlayers` evidence in v0.2.2:
+Initial `$nlayers` evidence in v0.2.2.1:
 
 | Pyramid layers | Initial `$nlayers` | Classification |
 | --- | --- | --- |

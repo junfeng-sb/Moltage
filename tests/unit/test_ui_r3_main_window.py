@@ -486,7 +486,7 @@ class UiR3MainWindowTests(unittest.TestCase):
         with patch("tools.molecule_viewer_demo.QMessageBox.about") as about:
             self.window._about_action.trigger()
         about.assert_called_once()
-        self.assertIn("Moltage 0.2.2", about.call_args.args[2])
+        self.assertIn("Moltage 0.2.2.1", about.call_args.args[2])
         self.assertIn("GNU GPL version 3 only", about.call_args.args[2])
 
     def test_theme_button_switches_registered_themes_and_stays_left_of_updates(

@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Moltage 0.2.2 is Copyright (C) 2026 Junfeng Lin and is distributed under
+Moltage 0.2.2.1 is Copyright (C) 2026 Junfeng Lin and is distributed under
 GNU GPL version 3 only. This file identifies third-party software present in
 the Windows distribution; it does not replace the complete license texts under
 `LICENSES/` or the notices shipped in the corresponding-source archives.

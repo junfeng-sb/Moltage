@@ -2,7 +2,7 @@
 
 [简体中文](CHANGELOG.zh-CN.md)
 
-## Unreleased — Optimization checkpoint (2026-10-01)
+## 0.2.2.1 — Pre-release
 
 - Batch local project-index updates during Refresh while preserving intervening changes and recycle state.
 - Reuse one Slurm queue query per Refresh, retaining per-job accounting and fresh checks before job actions.

@@ -67,7 +67,7 @@ the server, create directories, select files, or modify remote contents.
 
 - Passwords are never stored in `server_profiles.json`, project manifests,
   logs, screenshots, or repository files.
-- v0.2.2 supports password SSH only. SSH keys, ssh-agent, and jump hosts are not
+- v0.2.2.1 supports password SSH only. SSH keys, ssh-agent, and jump hosts are not
   implemented.
 - The optional email recipient is profile data but is not a password.
 - Do not include real hostnames, usernames, paths, project names, or captures
@@ -97,7 +97,7 @@ name, paths, and resources are examples rather than site recommendations.
 
 ### 10.2 Scheduler type and command location
 
-Moltage v0.2.2 supports **Slurm** and **IBM Spectrum LSF**.
+Moltage v0.2.2.1 supports **Slurm** and **IBM Spectrum LSF**.
 
 | Control | Meaning |
 | --- | --- |
@@ -342,7 +342,7 @@ executable, or WBL utility path.
 | **Validate Manual Path** | Verify the exact entered path/environment; available for both Slurm and LSF |
 
 Discovery does not choose the newest ORCA automatically. Multiple complete
-candidates require user selection. v0.2.2 has reviewed structured support for
+candidates require user selection. v0.2.2.1 has reviewed structured support for
 ORCA 5.0.x, 6.0.x, and 6.1.x.
 
 ### 12.3 WBL conversion utility

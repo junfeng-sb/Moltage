@@ -141,7 +141,7 @@ compute-node availability, license eligibility, or scientific input compatibilit
   fingerprint.
 - A changed key is blocked. Confirm the change with the server administrator
   before replacing trusted evidence.
-- Password authentication is the supported mode in v0.2.2; SSH key, jump-host,
+- Password authentication is the supported mode in v0.2.2.1; SSH key, jump-host,
   and ssh-agent workflows are not implemented.
 
 Never paste a password, private key, access token, or unredacted internal server
@@ -310,5 +310,5 @@ The project homepage, current source, issue tracker, and release downloads are a
 
 ---
 
-This completes the v0.2.2 user manual. Return to the
+This completes the v0.2.2.1 user manual. Return to the
 [manual index](README.md) or the [project README](../../README.md).

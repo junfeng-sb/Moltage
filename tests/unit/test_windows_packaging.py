@@ -9,7 +9,7 @@ PACKAGING_ROOT = PROJECT_ROOT / "packaging"
 
 class WindowsPackagingTests(unittest.TestCase):
     def test_distribution_version_is_consistent(self) -> None:
-        expected_version = "0.2.2"
+        expected_version = "0.2.2.1"
         metadata = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text("utf-8"))
         self.assertEqual(metadata["project"]["version"], expected_version)
 
@@ -39,15 +39,15 @@ class WindowsPackagingTests(unittest.TestCase):
         )
         numeric_version = tuple(int(part) for part in expected_version.split("."))
         self.assertIn(
-            f"filevers={numeric_version + (0,)},",
+            f"filevers={numeric_version},",
             version_info,
         )
         self.assertIn(
-            f"prodvers={numeric_version + (0,)},",
+            f"prodvers={numeric_version},",
             version_info,
         )
         self.assertIn(f'#define MyAppVersion "{expected_version}"', installer)
-        self.assertIn(f"VersionInfoVersion={expected_version}.0", installer)
+        self.assertIn(f"VersionInfoVersion={expected_version}", installer)
         self.assertIn('#define MyAppPublisher "Junfeng Lin"', installer)
         self.assertIn("AppPublisher={#MyAppPublisher}", installer)
         self.assertIn("VersionInfoCompany={#MyAppPublisher}", installer)
@@ -56,7 +56,7 @@ class WindowsPackagingTests(unittest.TestCase):
             installer,
         )
         self.assertIn(f'Moltage-Setup-{expected_version}.exe"', build_script)
-        self.assertIn(f"0.2.1 to {expected_version} (Pre-release)", bundled_log)
+        self.assertIn(f"0.2.2 to {expected_version} (Pre-release)", bundled_log)
         self.assertIn(f"## {expected_version} — Pre-release", changelog)
 
     def test_build_dependencies_are_pinned(self) -> None:
@@ -216,7 +216,7 @@ class WindowsPackagingTests(unittest.TestCase):
         manifest = tomllib.loads(
             (PACKAGING_ROOT / "third_party_sources.toml").read_text("utf-8")
         )
-        self.assertEqual(manifest["release"]["version"], "0.2.2")
+        self.assertEqual(manifest["release"]["version"], "0.2.2.1")
         entries = manifest["source"]
         filenames = [entry["filename"] for entry in entries]
         self.assertEqual(len(filenames), len(set(filenames)))

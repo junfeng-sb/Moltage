@@ -63,7 +63,7 @@ Step 4 — Transmission
 
 **FHI-aims Optimization Settings** 对话框把通用、spin、charge、output 和原子覆盖设置分开。
 
-| 设置 | v0.2.2 初始值 | 用途 |
+| 设置 | v0.2.2.1 初始值 | 用途 |
 | --- | --- | --- |
 | **Functional** | PBE | 选择受支持的 XC token |
 | **vdW** | TS-Hirshfeld | 选择 none、TS-Hirshfeld 或 TS-libMBD |
@@ -250,7 +250,7 @@ Moltage 会验证 Step 3 几何和前置条件，从已保存的电极元数据�
 | `$nlayers` | 独立的 AITRANSS 电极层参数 |
 | **Source** | `AIMS_RECOMMENDED`、`USER_SPECIFIED` 或缺失证据说明 |
 
-v0.2.2 中 `$nlayers` 的初始证据：
+v0.2.2.1 中 `$nlayers` 的初始证据：
 
 | 金字塔层数 | 初始 `$nlayers` | 分类 |
 | --- | --- | --- |

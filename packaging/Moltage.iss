@@ -1,5 +1,5 @@
 #define MyAppName "Moltage"
-#define MyAppVersion "0.2.2"
+#define MyAppVersion "0.2.2.1"
 #define MyAppPublisher "Junfeng Lin"
 #define MyAppExeName "Moltage.exe"
 #define MyAppIcon "..\resources\icons\moltage.ico"
@@ -10,7 +10,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-VersionInfoVersion=0.2.2.0
+VersionInfoVersion=0.2.2.1
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoCopyright=Copyright (C) 2026 {#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}

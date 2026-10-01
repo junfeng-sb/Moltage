@@ -9,7 +9,7 @@ building Au–molecule junction geometries, running structured calculations on a
 configured Linux server, and inspecting selected electronic-structure and
 transport results.
 
-The v0.2.2 release contains three distinct calculation families:
+The v0.2.2.1 release contains three distinct calculation families:
 
 - **FHI-aims + AITRANSS**: a managed four-stage path from molecular
   optimization to non-spin transmission inspection.
@@ -35,10 +35,10 @@ access to those programs and configure the corresponding server paths.
 - No server account is required for local viewing and local tight binding.
 - A saved SSH server profile is required for remote calculations.
 
-### 2.2 Install Moltage v0.2.2
+### 2.2 Install Moltage v0.2.2.1
 
-1. Open the [v0.2.2 release page](https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.2).
-2. Download `Moltage-Setup-0.2.2.exe`.
+1. Open the [v0.2.2.1 release page](https://github.com/junfeng-sb/Moltage/releases/tag/v0.2.2.1).
+2. Download `Moltage-Setup-0.2.2.1.exe`.
 3. Run the installer, choose an installation directory, and decide whether to
    create the desktop shortcut.
 
@@ -181,7 +181,7 @@ coordinates, scientific values, server settings, or generated inputs.
 | `.next_step` | Complete standalone FHI-aims next-step molecular geometry |
 | `.cube`, `.cub` | One signed scalar dataset; supported ORCA/Gaussian orbital form or explicitly confirmed FHI-aims/unidentified coordinate units |
 
-Not supported in v0.2.2 include V3000, SDF, aromatic/type-4 MOL bonds,
+Not supported in v0.2.2.1 include V3000, SDF, aromatic/type-4 MOL bonds,
 multi-dataset Cube files, formal-charge visualization, and bond-order editing.
 Malformed input fails explicitly; Moltage does not silently try a different
 parser.

@@ -1,4 +1,4 @@
-# Exact v0.2.2 packaging environment (unchanged from v0.2.1). Matplotlib and its dependency chain are
+# Exact v0.2.2.1 packaging environment (unchanged from v0.2.1). Matplotlib and its dependency chain are
 # installed transitively with VTK but are not collected into the Moltage
 # Windows distribution; they remain pinned here for build reproducibility.
 altgraph==0.17.5
