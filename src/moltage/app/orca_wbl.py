@@ -43,7 +43,11 @@ from moltage.remote.orca_runtime import require_usable_orca_runtime
 from moltage.remote.project_repository import RemoteProjectRepository
 from moltage.remote.project_manifest import serialize_project_manifest
 from moltage.remote.runtime_environment import runtime_environment_commands
-from moltage.remote.step_inputs import upload_new_files_atomically
+from moltage.remote.step_inputs import (
+    copy_remote_files_with_verified_digests,
+    remote_file_sha256,
+    upload_new_files_atomically,
+)
 from moltage.remote.wbl_results import WblResultPublication
 from moltage.structure.connectivity import infer_connectivity
 from moltage.structure.covalent_radii import load_default_covalent_radii
@@ -244,18 +248,28 @@ class OrcaWblService:
                 gbw_path,
                 temporary_directory,
             )
+            remote_sources = {
+                ORCA_WBL_WAVEFUNCTION_JSON: str(
+                    PurePosixPath(temporary_directory) / "orca_wbl.json"
+                ),
+            }
             wavefunction_json = executor.read_bytes(
-                str(PurePosixPath(temporary_directory) / "orca_wbl.json")
+                remote_sources[ORCA_WBL_WAVEFUNCTION_JSON]
             )
             if not wavefunction_json:
                 raise OrcaWblServiceError("orca_2json produced an empty JSON artifact")
-            molden = None
+            molden_hashes = {}
             if molden_available:
-                molden = executor.read_bytes(
-                    str(PurePosixPath(temporary_directory) / "orca_wbl.molden.input")
+                molden_path = str(
+                    PurePosixPath(temporary_directory) / "orca_wbl.molden.input"
                 )
-                if not molden:
+                molden_stat = executor.stat(molden_path)
+                if molden_stat.is_directory or not molden_stat.size:
                     raise OrcaWblServiceError("orca_2mkl produced an empty Molden artifact")
+                remote_sources[ORCA_WBL_MOLDEN] = molden_path
+                molden_hashes[ORCA_WBL_MOLDEN] = remote_file_sha256(
+                    executor, molden_path
+                )
             wavefunction = parse_orca_wavefunction_json(wavefunction_json)
             # Linker recognition and the automatic contact direction follow the
             # bond threshold factor the user reviewed for this run, not the
@@ -300,22 +314,29 @@ class OrcaWblService:
                 "orca_2json_path": orca_2json,
                 "orca_2mkl_path": orca_2mkl or "UNAVAILABLE",
             }
-            rendered, _ = render_wbl_artifacts(
+            rendered, rendered_hashes = render_wbl_artifacts(
                 analysis,
                 source_hashes=source_hashes,
                 tool_evidence=tool_evidence,
             )
             files = {
                 ORCA_WBL_CONFIG: config,
-                ORCA_WBL_WAVEFUNCTION_JSON: wavefunction_json,
-                **({ORCA_WBL_MOLDEN: molden} if molden is not None else {}),
                 **rendered,
+            }
+            # JSON must be downloaded for calculation; Molden is provenance only.
+            # Copy both on the server, checking JSON against the bytes analyzed
+            # locally and Molden against its source hash. Keep the complete plan
+            # before any transfer so partial staging can be verified for cleanup.
+            file_hashes = {
+                ORCA_WBL_CONFIG: sha256(config).hexdigest(),
+                ORCA_WBL_WAVEFUNCTION_JSON: source_hashes[ORCA_WBL_WAVEFUNCTION_JSON],
+                **molden_hashes,
+                **rendered_hashes,
             }
             final_directory = publication.final
             staging_directory = publication.staging
-            publication.new_hashes = tuple(
-                (name, sha256(data).hexdigest()) for name, data in files.items()
-            )
+            artifact_hashes = tuple(file_hashes.items())
+            publication.new_hashes = artifact_hashes
             try:
                 executor.mkdir(staging_directory)
             except Exception as error:
@@ -324,8 +345,18 @@ class OrcaWblService:
                     f"{staging_directory}: {error}"
                 ) from None
             publication.staging_created = True
-            report("Uploading and verifying WBL provenance artifacts...")
-            artifact_hashes = upload_new_files_atomically(
+            if executor.list_directory(staging_directory):
+                raise OrcaWblServiceError(
+                    "WBL staging is not empty; refusing to overwrite artifacts"
+                )
+            report("Staging and verifying WBL provenance artifacts...")
+            copy_remote_files_with_verified_digests(
+                executor,
+                staging_directory,
+                remote_sources,
+                {name: file_hashes[name] for name in remote_sources},
+            )
+            upload_new_files_atomically(
                 executor,
                 staging_directory,
                 files,
@@ -412,7 +443,7 @@ class OrcaWblService:
                 analysis,
                 final_directory,
                 artifact_hashes,
-                molden is not None,
+                molden_available,
                 cleanup_warning,
             )
         except Exception as error:

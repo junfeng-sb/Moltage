@@ -144,6 +144,23 @@ class Step3OomCancellationTests(unittest.TestCase):
 
         self.assertEqual(self._scancel_commands(), [])
 
+    def test_cancellation_never_uses_the_previous_batch_running_snapshot(self):
+        refreshed = self.service.discover_and_refresh(PROFILE)
+        self.assertIs(refreshed.snapshots[0].active_step.state, ProjectStepState.RUNNING)
+        before_cancel = len(self.remote.commands)
+        self.remote.squeue_stdout = b""
+        self.remote.sacct_stdout = b"41001|CANCELLED|0:15\n"
+
+        result = self.service.cancel_active_step3_oom_job(self._request())
+
+        self.assertIs(result.outcome, Step3OomCancellationOutcome.ALREADY_TERMINAL)
+        self.assertEqual(self._scancel_commands(), [])
+        self.assertIs(result.snapshot.active_step.state, ProjectStepState.FAILED)
+        self.assertEqual(result.snapshot.active_step.scheduler_state, "CANCELLED")
+        self.assertTrue(any(
+            c.startswith("/usr/bin/squeue ") for c in self.remote.commands[before_cancel:]
+        ))
+
     def test_near_miss_output_never_dispatches(self):
         directory = self.project.remote_project_path + "/molecule_Au/transport"
         self.remote.files[directory + "/aims.dft.out"] = (

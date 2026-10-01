@@ -1453,16 +1453,6 @@ def _best_partial_frontier(label, items):
     return tuple(frontier)
 
 
-def _support_module_terms(unmet):
-    return tuple(
-        dict.fromkeys(
-            term
-            for group in _support_module_term_groups(unmet)
-            for term in group
-        )
-    )
-
-
 def _support_module_term_groups(unmet):
     """Keep dependency families separate and defer launcher-only MPI search."""
 

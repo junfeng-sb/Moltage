@@ -1552,13 +1552,12 @@ class MoleculeViewerDemo(QMainWindow):
             outgoing = self._bound_geometry_workspace
             if outgoing is not None:
                 self._deactivate_lattice_extension_workspace(outgoing)
+                self._cancel_torsion_numeric_edit()
                 self._store_bound_geometry_workspace(
                     capture_builder_visibility=(
                         self._presented_workspace is outgoing
                     ),
                 )
-            if hasattr(self, "_torsion_numeric_input"):
-                self._cancel_torsion_numeric_edit()
             if isinstance(active, _GeometryWorkspace):
                 self._bind_geometry_workspace(active)
             self._presented_workspace = active
@@ -1906,6 +1905,10 @@ class MoleculeViewerDemo(QMainWindow):
             )
             return
         if workspace is self._bound_geometry_workspace:
+            # Cancel while the closing workspace still owns its live editor.
+            # After the last Geometry tab closes there is no outgoing editor
+            # for the next workspace activation to touch.
+            self._cancel_torsion_numeric_edit()
             self._store_bound_geometry_workspace(
                 capture_builder_visibility=(self._presented_workspace is workspace),
             )
@@ -4998,17 +5001,6 @@ class MoleculeViewerDemo(QMainWindow):
         ):
             return None
         return workspace
-
-    @Slot()
-    def _resubmit_active_orca_optimization(self) -> None:
-        workspace = self._active_orca_geometry_workspace()
-        if workspace is None or workspace.structure is None:
-            return
-        snapshot = workspace.recovery_snapshot
-        profile = workspace.recovery_profile
-        if snapshot is None or profile is None:
-            return
-        self._resubmit_orca_optimization((snapshot, profile, workspace.structure))
 
     @Slot(object)
     def _resubmit_orca_wbl(self, request_data: object) -> None:

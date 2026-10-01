@@ -1,5 +1,6 @@
 """Strict one-shot Slurm status queries using absolute command paths."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import PurePosixPath
@@ -103,32 +104,71 @@ def query_slurm_job_status(
 ) -> SlurmJobStatus:
     """Query the configured Slurm or LSF scheduler without fuzzy matching."""
 
-    if PurePosixPath(squeue_path).name == "bjobs":
-        return query_lsf_job_status(
-            executor,
-            bjobs_path=squeue_path,
-            bhist_path=sacct_path,
-            job_id=job_id,
-            profile_username=profile_username,
-            lsf_env_directory=lsf_env_directory,
-            lsf_library_directory=lsf_library_directory,
-            lsf_server_directory=lsf_server_directory,
+    # A standalone call always starts a fresh observation, including kill/retry
+    # preflight. Only an explicit batch caller retains the returned query.
+    return make_batch_job_status_query(
+        executor,
+        squeue_path=squeue_path,
+        sacct_path=sacct_path,
+        profile_username=profile_username,
+        lsf_env_directory=lsf_env_directory,
+        lsf_library_directory=lsf_library_directory,
+        lsf_server_directory=lsf_server_directory,
+    )(job_id)
+
+
+def make_batch_job_status_query(
+    executor: RemoteExecutor,
+    *,
+    squeue_path: str,
+    sacct_path: str,
+    profile_username: str,
+    lsf_env_directory: str | None = None,
+    lsf_library_directory: str | None = None,
+    lsf_server_directory: str | None = None,
+) -> Callable[[str], SlurmJobStatus]:
+    """Bind one lazy queue observation to this executor/profile/refresh only.
+
+    Parse the whole-user Slurm queue once. Missing jobs still require their
+    own exact accounting query; LSF remains per-job throughout. No terminal
+    result is cached, and no command runs until a job is actually requested.
+    Discard this callable when the operation ends; never reuse it for actions
+    requiring fresh evidence or a later refresh.
+    Failures are not cached: the caller must abort, not catch and retry.
+    """
+
+    queue_rows: dict[str, list[str]] | None = None
+
+    def query(job_id: str) -> SlurmJobStatus:
+        nonlocal queue_rows
+        if PurePosixPath(squeue_path).name == "bjobs":
+            return query_lsf_job_status(
+                executor,
+                bjobs_path=squeue_path,
+                bhist_path=sacct_path,
+                job_id=job_id,
+                profile_username=profile_username,
+                lsf_env_directory=lsf_env_directory,
+                lsf_library_directory=lsf_library_directory,
+                lsf_server_directory=lsf_server_directory,
+            )
+        normalized_job_id = validate_job_id(job_id)
+        if queue_rows is None:
+            squeue = executor.execute(
+                build_squeue_status_command(squeue_path, profile_username)
+            )
+            _require_successful_result(squeue, "squeue")
+            queue_rows = _parse_squeue_rows(squeue.stdout)
+        active = _squeue_status_for(queue_rows, normalized_job_id)
+        if active is not None:
+            return active
+        sacct = executor.execute(
+            build_sacct_status_command(sacct_path, normalized_job_id)
         )
+        _require_successful_result(sacct, "sacct")
+        return parse_sacct_output(sacct.stdout, normalized_job_id)
 
-    normalized_job_id = validate_job_id(job_id)
-    squeue = executor.execute(
-        build_squeue_status_command(squeue_path, profile_username)
-    )
-    _require_successful_result(squeue, "squeue")
-    active = parse_squeue_output(squeue.stdout, normalized_job_id)
-    if active is not None:
-        return active
-
-    sacct = executor.execute(
-        build_sacct_status_command(sacct_path, normalized_job_id)
-    )
-    _require_successful_result(sacct, "sacct")
-    return parse_sacct_output(sacct.stdout, normalized_job_id)
+    return query
 
 
 def build_bjobs_status_command(
@@ -366,8 +406,12 @@ def parse_squeue_output(
     """Select the exact target from strict per-user `JobID|State` rows."""
 
     normalized_job_id = validate_job_id(job_id)
+    return _squeue_status_for(_parse_squeue_rows(output), normalized_job_id)
+
+
+def _parse_squeue_rows(output: str | bytes) -> dict[str, list[str]]:
     lines = _nonempty_lines(output, "squeue")
-    target: SlurmJobStatus | None = None
+    rows: dict[str, list[str]] = {}
     for line in lines:
         fields = line.split("|")
         if len(fields) != 2:
@@ -376,20 +420,28 @@ def parse_squeue_output(
         if _SQUEUE_JOB_ID.fullmatch(row_job_id) is None:
             raise SlurmStatusParseError("squeue job ID is malformed")
         _validate_state(state, "squeue")
-        if row_job_id != normalized_job_id:
-            continue
-        if target is not None:
-            raise SlurmStatusParseError(
-                "squeue returned multiple rows for the target non-array job"
-            )
-        if state in _QUEUED_STATES:
-            kind = SchedulerStatusKind.QUEUED
-        elif state in _RUNNING_STATES:
-            kind = SchedulerStatusKind.RUNNING
-        else:
-            kind = SchedulerStatusKind.UNRESOLVED
-        target = SlurmJobStatus(kind, state)
-    return target
+        rows.setdefault(row_job_id, []).append(state)
+    return rows
+
+
+def _squeue_status_for(
+    rows: dict[str, list[str]], normalized_job_id: str,
+) -> SlurmJobStatus | None:
+    states = rows.get(normalized_job_id)
+    if not states:
+        return None
+    if len(states) != 1:
+        raise SlurmStatusParseError(
+            "squeue returned multiple rows for the target non-array job"
+        )
+    state = states[0]
+    if state in _QUEUED_STATES:
+        kind = SchedulerStatusKind.QUEUED
+    elif state in _RUNNING_STATES:
+        kind = SchedulerStatusKind.RUNNING
+    else:
+        kind = SchedulerStatusKind.UNRESOLVED
+    return SlurmJobStatus(kind, state)
 
 
 def parse_sacct_output(output: str | bytes, job_id: str) -> SlurmJobStatus:

@@ -406,6 +406,15 @@ class UiR4WorkspaceTests(unittest.TestCase):
         self.assertTrue(self.window.isVisible())
         self.assertFalse(self.window._reset_view_action.isEnabled())
 
+        # Finish native deletion before reopening: the old angle editor must
+        # no longer be used by the main-window workspace router.
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.application.processEvents()
+        reopened = self.window._open_local_geometry(self.path_b)
+        self.assertIs(self.window._active_workspace(), reopened)
+        self.assertEqual(structure_coordinates(reopened.structure), original_b)
+        self.assertTrue(self.window._distance_measure_action.isEnabled())
+
     def test_tab_close_does_not_cancel_or_remove_remote_worker(self):
         workspace = self.window._open_local_geometry(self.path_a)
         worker = MagicMock()

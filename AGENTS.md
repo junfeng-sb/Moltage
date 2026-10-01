@@ -21,6 +21,9 @@ Do not add silent fallbacks, speculative features, generic plugin frameworks, go
 ## Validation and OpenSpec
 
 - Small edits: run the affected modules' focused tests. Completed features: run the subsystem and its direct integration tests, using explicit `tools/run_tests.ps1 -Tests` paths.
+- Before adding tests, check existing coverage. Add only coverage for a distinct changed behavior, regression, or failure boundary; prefer extending an existing case or using small subtests over duplicating scenarios. Do not target test counts or arbitrary coverage percentages.
+- Use the lightest test that proves the contract. Do not start a full GUI/native viewer, construct full electrodes, or run an end-to-end workflow for a simple rule. Retain representative integration, scientific/security, data-integrity, and native-lifecycle coverage where that boundary actually matters.
+- Assert observable behavior. Exact call counts are appropriate for an explicit I/O/performance contract, not incidental implementation steps. Consolidate redundant tests only after identifying where their independent failure cases remain covered. Test-only consolidation does not itself require a full suite or independent audit; the risk triggers below still apply.
 - Run the full offline suite only for schema/persistence, scientific behavior, high-risk scheduler/security/cross-layer architecture changes, or a formal pre-commit snapshot. It is not a default task for every OpenSpec change.
 - Independent Claude audit applies only to those high-risk changes and public-release blockers, not ordinary GUI, documentation, or local features.
 - Run `openspec validate <change> --strict` once when the proposal is complete, once when apply is complete, and once before archive. Reuse existing validation evidence when the artifacts have not changed; do not rerun it merely because another command or test completed.

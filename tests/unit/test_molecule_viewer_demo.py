@@ -882,26 +882,35 @@ class MoleculeViewerDemoSmokeTests(unittest.TestCase):
             self.assertIs(self.window._pick_mode, _ViewerPickMode.NORMAL)
             self.assertIn("S3", self.window._picked_atom_label.text())
 
+            def select_from_settings(side):
+                QTimer.singleShot(0, lambda: self.window._report_picked_atom(1))
+                selected = self.window._select_orca_wbl_contact_atom(side)
+                QTimer.singleShot(0, settings.reject)
+                return selected
+
             settings = OrcaWblSettingsDialog(
                 structure,
                 connectivity,
                 self.window,
                 connectivity_multiplier=self.window._connectivity_multiplier,
-                contact_atom_selector=self.window._select_orca_wbl_contact_atom,
+                contact_atom_selector=select_from_settings,
             )
 
             def choose_from_modal_dialog() -> None:
-                QTimer.singleShot(0, lambda: self.window._report_picked_atom(1))
                 settings._left.atom.setCurrentIndex(
                     settings._left.atom.findData("MANUAL_SELECT_IN_VIEWER")
                 )
-                QTimer.singleShot(0, settings.reject)
 
             QTimer.singleShot(0, choose_from_modal_dialog)
             settings.exec()
             self.assertEqual(settings._left.atom.currentData(), 1)
             self.assertIs(self.window._pick_mode, _ViewerPickMode.NORMAL)
+            self.assertFalse(settings.isVisible())
+            self.assertIsNone(self.application.modalWindow())
+            self.assertIsNone(self.application.activeModalWidget())
             settings.close()
+            self.window.activateWindow()
+            self.application.processEvents()
 
             # Step 2 must interpret the bonds the session currently shows.
             self.window._connectivity_multiplier = 1.35

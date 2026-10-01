@@ -553,6 +553,8 @@ class _RequiredPositiveEvSpinBox(_CompactDoubleSpinBox):
 
 
 _MANUAL_CONTACT_SELECTION = "MANUAL_SELECT_IN_VIEWER"
+# Private dialog result consumed by OrcaWblSettingsDialog.exec(), not submission.
+_PICK_CONTACT_IN_VIEWER = 2
 
 # An unselected contact is an empty form, not a contact Moltage cannot project.
 _CONTACT_ATOM_NOT_SELECTED = "select a contact atom"
@@ -619,6 +621,8 @@ class OrcaWblSettingsDialog(QDialog):
         self._connectivity = connectivity
         self._connectivity_multiplier = float(connectivity_multiplier)
         self._contact_atom_selector = contact_atom_selector
+        self._in_settings_exec = False
+        self._pending_contact_pick: tuple[_WblContactControls, str] | None = None
         self._detected_linkers_by_atom = self._detected_linker_map()
         self._defaults = load_default_wbl_ui_defaults()
         self._settings: OrcaWblSettings | None = None
@@ -1111,6 +1115,22 @@ class OrcaWblSettingsDialog(QDialog):
             controls.linker.setCurrentIndex(0)
         self._refresh_auto_subspace(controls)
 
+    def exec(self) -> int:
+        # Hiding and re-showing inside QDialog.exec() ends its event loop before
+        # modality is restored. Finish that loop first, pick in the viewer,
+        # then reopen the same form with its values intact.
+        while True:
+            self._in_settings_exec = True
+            try:
+                result = super().exec()
+            finally:
+                self._in_settings_exec = False
+            pending = self._pending_contact_pick
+            self._pending_contact_pick = None
+            if result != _PICK_CONTACT_IN_VIEWER or pending is None:
+                return result
+            self._choose_contact_in_viewer(*pending)
+
     def _choose_contact_in_viewer(
         self,
         controls: _WblContactControls,
@@ -1126,13 +1146,19 @@ class OrcaWblSettingsDialog(QDialog):
             )
             self._restore_contact_combo(controls, previous)
             return
+        if self._in_settings_exec:
+            self._pending_contact_pick = (controls, side)
+            self.done(_PICK_CONTACT_IN_VIEWER)
+            return
+        was_visible = self.isVisible()
         self.hide()
         try:
             selected = self._contact_atom_selector(side)
         finally:
-            self.show()
-            self.raise_()
-            self.activateWindow()
+            if was_visible:
+                self.show()
+                self.raise_()
+                self.activateWindow()
         if selected is None:
             self._restore_contact_combo(controls, previous)
             return

@@ -121,22 +121,45 @@ def interaction_candidates_for_working_geometry(
 ) -> tuple[LatticeExtensionInteractionCandidate, ...]:
     """Map and classify one cached Phase-2 candidate snapshot."""
 
+    _canonical, interaction = _current_candidate_snapshot(
+        applied, working_structure, vdw_radii,
+    )
+    return interaction
+
+
+def _current_candidate_snapshot(
+    applied: AppliedElectrodePlacement,
+    working_structure: MolecularStructure,
+    vdw_radii: Mapping[str, float],
+) -> tuple[
+    tuple[AuLatticeExtensionCandidate, ...],
+    tuple[LatticeExtensionInteractionCandidate, ...],
+]:
+    """Keep canonical and display candidates from the same fresh enumeration."""
+
     _validate_working_identity(applied, working_structure)
     frames = _current_frames(applied, working_structure)
     _validate_current_extensions(applied, working_structure, frames)
     identity_by_global = _identity_by_global_atom_index(applied)
     canonical_candidates = enumerate_lattice_extension_candidates(applied)
-    return tuple(
+    # Immutable inputs shared only within this fresh working-geometry snapshot.
+    ordered_identities = tuple(sorted(identity_by_global.items()))
+    all_au_coordinates = tuple(
+        _coordinates(atom) for atom in working_structure if atom.element == "Au"
+    )
+    interaction = tuple(
         _interaction_candidate(
             candidate,
             frames[candidate.side].coordinate(candidate.lattice_key),
             working_structure,
+            all_au_coordinates,
             frames[candidate.side],
             vdw_radii,
-            _predicted_neighbor_indices(candidate, identity_by_global),
+            _predicted_neighbor_indices(candidate, ordered_identities),
         )
         for candidate in canonical_candidates
     )
+    return canonical_candidates, interaction
 
 
 def add_lattice_extension_to_working_geometry(
@@ -149,7 +172,7 @@ def add_lattice_extension_to_working_geometry(
 
     if not isinstance(identity, AuLatticeExtensionSite):
         raise TypeError("working-geometry add requires a lattice identity")
-    snapshot = interaction_candidates_for_working_geometry(
+    canonical_candidates, snapshot = _current_candidate_snapshot(
         applied,
         working_structure,
         vdw_radii,
@@ -166,7 +189,7 @@ def add_lattice_extension_to_working_geometry(
         )
     canonical_matches = tuple(
         candidate
-        for candidate in enumerate_lattice_extension_candidates(applied)
+        for candidate in canonical_candidates
         if candidate.identity == identity
     )
     if len(canonical_matches) != 1:
@@ -200,6 +223,7 @@ def _interaction_candidate(
     candidate: AuLatticeExtensionCandidate,
     coordinates: Vector3,
     working_structure: MolecularStructure,
+    all_au_coordinates: tuple[Vector3, ...],
     frame: AuLatticeFrame,
     vdw_radii: Mapping[str, float],
     predicted_neighbor_indices: tuple[int, ...],
@@ -210,9 +234,6 @@ def _interaction_candidate(
     )
     layer_basis_u = _subtract(frame.basis_i, frame.basis_j)
     layer_basis_v = _subtract(frame.basis_i, frame.basis_k)
-    all_au_coordinates = tuple(
-        _coordinates(atom) for atom in working_structure if atom.element == "Au"
-    )
     if not has_au_lattice_clearance(
         coordinates,
         all_au_coordinates,
@@ -282,11 +303,11 @@ def _identity_by_global_atom_index(
 
 def _predicted_neighbor_indices(
     candidate: AuLatticeExtensionCandidate,
-    identity_by_global: Mapping[int, AuLatticeExtensionSite],
+    ordered_identities: tuple[tuple[int, AuLatticeExtensionSite], ...],
 ) -> tuple[int, ...]:
     neighbors = tuple(
         global_index
-        for global_index, identity in sorted(identity_by_global.items())
+        for global_index, identity in ordered_identities
         if identity.side == candidate.side
         and lattice_distance_squared(identity.lattice_key, candidate.lattice_key)
         == 1

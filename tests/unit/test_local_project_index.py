@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from uuid import UUID
 
 from moltage.app.local_project_index import (
@@ -274,6 +275,172 @@ class LocalProjectIndexTests(unittest.TestCase):
                     submitted_at=SUBMITTED_AT,
                     recycled_at=datetime(2030, 8, 31, 15, 0),
                 )
+
+
+class BatchProjectIndexTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.repository = LocalProjectIndexRepository(
+            Path(temporary.name) / "known_projects.json"
+        )
+        self.project = example_project()
+
+    def mark_many(self, projects, previous=()):
+        self.repository.mark_seen_many(
+            tuple(projects),
+            bound_server_profile_id=PROFILE_A,
+            previous_references=previous,
+        )
+
+    def test_batch_matches_single_updates_with_one_read_and_one_write(self):
+        previous = (self.repository.mark_seen(self.project),)
+        other = replace(self.project, project_id=UUID(int=2), display_name="Example B")
+        projects = (replace(self.project, revision=9), other)
+        expected = LocalProjectIndexRepository(self.repository.path.with_name("single.json"))
+        expected.save(previous[0])
+        for project in projects:
+            expected.mark_seen(project, bound_server_profile_id=PROFILE_A)
+
+        with (
+            patch.object(self.repository, "_load_state", wraps=self.repository._load_state) as reads,
+            patch.object(self.repository, "_write", wraps=self.repository._write) as writes,
+        ):
+            self.mark_many(projects, previous)
+            self.assertEqual(reads.call_count, 1)
+            self.assertEqual(writes.call_count, 1)
+
+        self.assertEqual(self.repository.path.read_bytes(), expected.path.read_bytes())
+        self.assertEqual(
+            LocalProjectIndexRepository(self.repository.path).load(), expected.load()
+        )
+
+    def test_unchanged_batch_preserves_bytes_without_write(self):
+        previous = (
+            self.repository.mark_seen(self.project, bound_server_profile_id=PROFILE_A),
+        )
+        before = self.repository.path.read_bytes()
+        with patch.object(self.repository, "_write", wraps=self.repository._write) as writes:
+            self.mark_many((self.project,), previous)
+            writes.assert_not_called()
+        self.assertEqual(self.repository.path.read_bytes(), before)
+
+    def test_empty_batch_does_not_read_or_create_index(self):
+        with patch.object(self.repository, "_load_state", wraps=self.repository._load_state) as reads:
+            self.mark_many(())
+            reads.assert_not_called()
+        self.assertFalse(self.repository.path.exists())
+
+    def test_snapshot_reads_bindings_and_tombstones_once(self):
+        tombstone = self.repository.recycle(
+            self.project, bound_server_profile_id=PROFILE_A,
+            submitted_at=SUBMITTED_AT, recycled_at=RECYCLED_AT,
+        )
+        with patch.object(self.repository, "_load_state", wraps=self.repository._load_state) as reads:
+            references, recycled = self.repository.load_snapshot()
+            self.assertEqual(reads.call_count, 1)
+        self.assertEqual(recycled, (tombstone,))
+        self.assertEqual(references[0].server_profile_id, PROFILE_A)
+
+    def test_fresh_merge_preserves_intervening_other_project_and_recycle_updates(self):
+        self.repository.mark_seen(self.project, bound_server_profile_id=PROFILE_A)
+        previous, _ = self.repository.load_snapshot()
+        other_writer = LocalProjectIndexRepository(self.repository.path)
+        other = replace(self.project, project_id=UUID(int=2), display_name="Example B")
+        other_reference = other_writer.mark_seen(other, bound_server_profile_id=PROFILE_B)
+        tombstone = other_writer.recycle(
+            self.project, bound_server_profile_id=PROFILE_A,
+            submitted_at=SUBMITTED_AT, recycled_at=RECYCLED_AT,
+        )
+
+        self.mark_many((replace(self.project, revision=8),), previous)
+
+        references, recycled = self.repository.load_snapshot()
+        self.assertIn(other_reference, references)
+        self.assertEqual(recycled, (tombstone,))
+        updated = next(r for r in references if r.project_id == self.project.project_id)
+        self.assertEqual(updated.last_seen_revision, 8)
+
+    def test_intervening_same_project_changes_fail_without_overwriting_any_entry(self):
+        reference = self.repository.mark_seen(self.project, bound_server_profile_id=PROFILE_A)
+        replacements = (
+            (),  # A concurrent forget must not be undone by the old refresh.
+            (replace(reference, last_seen_revision=20),),
+            (replace(reference, server_profile_id=PROFILE_B),),
+            (replace(reference, remote_project_path="/different/example"),),
+            (replace(reference, display_name="Renamed example"),),
+        )
+        other = replace(self.project, project_id=UUID(int=2), display_name="Example B")
+        for current in replacements:
+            with self.subTest(current=current):
+                self.repository._write(current, ())
+                before = self.repository.path.read_bytes()
+                with self.assertRaisesRegex(LocalProjectIndexError, "changed during refresh"):
+                    self.mark_many((other, replace(self.project, revision=9)), (reference,))
+                self.assertEqual(self.repository.path.read_bytes(), before)
+
+    def test_identical_intervening_update_is_not_a_conflict_or_write(self):
+        previous = (
+            self.repository.mark_seen(self.project, bound_server_profile_id=PROFILE_A),
+        )
+        updated = replace(self.project, revision=9)
+        self.repository.mark_seen(updated, bound_server_profile_id=PROFILE_A)
+        with patch.object(self.repository, "_write", wraps=self.repository._write) as writes:
+            self.mark_many((updated,), previous)
+            writes.assert_not_called()
+
+    def test_legacy_index_is_read_without_rewrite_and_migrates_on_change(self):
+        for version in (1, 2):
+            with self.subTest(version=version):
+                self.repository.mark_seen(self.project, bound_server_profile_id=PROFILE_A)
+                raw = json.loads(self.repository.path.read_text(encoding="utf-8"))
+                raw["schema_version"] = version
+                del raw["projects"][0]["workflow_kind"]
+                if version == 1:
+                    del raw["recycled_projects"]
+                self.repository.path.write_text(json.dumps(raw), encoding="utf-8")
+                previous, _ = self.repository.load_snapshot()
+                before = self.repository.path.read_bytes()
+                self.mark_many((self.project,), previous)
+                self.assertEqual(self.repository.path.read_bytes(), before)
+                self.mark_many((replace(self.project, revision=9),), previous)
+                migrated = json.loads(self.repository.path.read_text(encoding="utf-8"))
+                self.assertEqual(migrated["schema_version"], 3)
+                self.assertEqual(migrated["projects"][0]["last_seen_revision"], 9)
+
+    def test_invalid_latest_index_fails_without_replacement(self):
+        previous = (
+            self.repository.mark_seen(self.project, bound_server_profile_id=PROFILE_A),
+        )
+        self.repository.path.write_text("not json", encoding="utf-8")
+        with self.assertRaisesRegex(LocalProjectIndexError, "malformed"):
+            self.mark_many((replace(self.project, revision=9),), previous)
+        self.assertEqual(self.repository.path.read_text(encoding="utf-8"), "not json")
+
+    def test_failed_atomic_replace_preserves_existing_file_and_reports_error(self):
+        previous = (
+            self.repository.mark_seen(self.project, bound_server_profile_id=PROFILE_A),
+        )
+        before = self.repository.path.read_bytes()
+        with patch(
+            "moltage.app.local_project_index.os.replace",
+            side_effect=OSError("synthetic disk failure"),
+        ):
+            with self.assertRaisesRegex(LocalProjectIndexError, "could not be persisted"):
+                self.mark_many((replace(self.project, revision=9),), previous)
+        self.assertEqual(self.repository.path.read_bytes(), before)
+        self.assertFalse(self.repository.path.with_name("known_projects.json.tmp").exists())
+
+    def test_duplicate_batch_ids_keep_last_reference_like_sequential_updates(self):
+        copied = replace(
+            self.project, remote_project_path="/different/example",
+            remote_directory_name="example", revision=9,
+        )
+        expected = LocalProjectIndexRepository(self.repository.path.with_name("single.json"))
+        for project in (self.project, copied):
+            expected.mark_seen(project, bound_server_profile_id=PROFILE_A)
+        self.mark_many((self.project, copied))
+        self.assertEqual(self.repository.path.read_bytes(), expected.path.read_bytes())
 
 
 if __name__ == "__main__":

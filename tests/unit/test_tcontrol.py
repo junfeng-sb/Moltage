@@ -5,7 +5,10 @@ from moltage.aims.transport_evidence import (
     TransportCompletionEvidence,
     TransportSpinMode,
 )
-from moltage.aitranss.nlayers import NlayersValueSource
+from moltage.aitranss.nlayers import (
+    NlayersValueSource,
+    nlayers_initial_value_for_pyramid,
+)
 from moltage.aitranss.tcontrol import (
     OnOff,
     TControlError,
@@ -28,6 +31,24 @@ from moltage.junction.electrode_lattice_extension import (
 from moltage.junction.electrode_surface import propose_electrode_surfaces
 from synthetic_structure_test_support import synthetic_step2_state
 from test_electrode_surface import accepted_shape
+
+
+class NlayersInitialValueTests(unittest.TestCase):
+    def test_nlayers_initial_values_are_table_driven_and_source_typed(self):
+        # Table coverage needs no geometry; proposal wiring is exercised below
+        # and by the existing Step-4 dialog integration tests.
+        for layers, expected in (
+            (4, (2, NlayersValueSource.AIMS_RECOMMENDED)),
+            (5, (3, NlayersValueSource.AIMS_RECOMMENDED)),
+            (6, (4, NlayersValueSource.USER_SPECIFIED)),
+        ):
+            with self.subTest(layers=layers):
+                initial = nlayers_initial_value_for_pyramid(layers)
+                self.assertIsNotNone(initial)
+                self.assertEqual((initial.value, initial.source), expected)
+        for layers in (2, 3, 7, 8, 9, 10):
+            with self.subTest(layers=layers):
+                self.assertIsNone(nlayers_initial_value_for_pyramid(layers))
 
 
 class TControlTests(unittest.TestCase):
@@ -130,38 +151,12 @@ class TControlTests(unittest.TestCase):
                 with self.assertRaises((TControlError, ValueError)):
                     replace(self.settings, **keyword)
 
-    def test_nlayers_initial_values_are_table_driven_and_source_typed(self):
-        for layers, expected in (
-            (4, (2, NlayersValueSource.AIMS_RECOMMENDED)),
-            (5, (3, NlayersValueSource.AIMS_RECOMMENDED)),
-            (6, (4, NlayersValueSource.USER_SPECIFIED)),
-        ):
-            structure, provenance = accepted_shape(layers)
-            surface = propose_electrode_surfaces(structure, provenance)
-            proposal = TControlProposal.from_evidence(
-                TransportCompletionEvidence(
-                    len(structure), 512, TransportSpinMode.NONE, "a" * 64
-                ),
-                surface,
-            )
-            self.assertEqual((proposal.nlayers, proposal.nlayers_source), expected)
-        for layers in (2, 3, 7, 8, 9, 10):
-            structure, provenance = accepted_shape(layers)
-            surface = propose_electrode_surfaces(structure, provenance)
-            proposal = TControlProposal.from_evidence(
-                TransportCompletionEvidence(
-                    len(structure), 512, TransportSpinMode.NONE, "a" * 64
-                ),
-                surface,
-            )
-            self.assertIsNone(proposal.nlayers)
-            self.assertIsNone(proposal.nlayers_source)
-            with self.assertRaisesRegex(TControlError, "not configured"):
-                TControlSettings.from_proposal(proposal)
-
     def test_lattice_extensions_do_not_change_nlayers_value_or_source(self):
         structure, connectivity, _anchors, sites = synthetic_step2_state()
-        for layers in (6, 7):
+        for layers, expected in (
+            (6, (4, NlayersValueSource.USER_SPECIFIED)),
+            (7, (None, None)),
+        ):
             with self.subTest(layers=layers):
                 applied = apply_electrode_placement(
                     structure,
@@ -207,6 +202,10 @@ class TControlTests(unittest.TestCase):
                     after_surface,
                 )
 
+                self.assertEqual((before.nlayers, before.nlayers_source), expected)
+                if before.nlayers is None:
+                    with self.assertRaisesRegex(TControlError, "not configured"):
+                        TControlSettings.from_proposal(before)
                 self.assertEqual(after_surface.pyramid_layers, layers)
                 self.assertEqual(after.nlayers, before.nlayers)
                 self.assertEqual(after.nlayers_source, before.nlayers_source)

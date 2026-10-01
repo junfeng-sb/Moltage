@@ -4,6 +4,7 @@ from pathlib import Path, PurePosixPath
 import hashlib
 import tempfile
 import unittest
+from unittest.mock import patch
 from moltage.app.project_recovery import _progress_reporter
 from moltage.remote.executor import RemoteOperationStopped, RemoteOperationStopToken
 from uuid import UUID
@@ -22,11 +23,15 @@ from moltage.aitranss.output import AitranssFailureCode
 from moltage.aitranss.tcontrol import TControlSettings, render_tcontrol
 from moltage.aims.transport_evidence import TransportSpinMode
 from species_test_support import synthetic_species_library
-from moltage.app.local_project_index import LocalProjectIndexRepository
+from moltage.app.local_project_index import (
+    LocalProjectIndexError,
+    LocalProjectIndexRepository,
+)
 from moltage.app.electrode_provenance import provenance_from_applied_electrodes
 from moltage.app.project_planning import create_initial_project
 from moltage.app.project_recovery import (
     ProjectProfileRebindRequired,
+    ProjectRecoveryError,
     ProjectRecoveryService,
 )
 from moltage.domain.calculation_project import (
@@ -37,6 +42,7 @@ from moltage.domain.calculation_project import (
 )
 from electrode_test_support import synthetic_project_electrode_provenance
 from moltage.domain.structure import Atom, MolecularStructure
+from moltage.domain.scheduler import SchedulerKind
 from moltage.junction.electrode_surface import propose_electrode_surfaces
 from moltage.remote.executor import (
     RemoteCommandResult,
@@ -55,7 +61,9 @@ from moltage.remote.slurm_discovery import (
 )
 from moltage.remote.slurm_status import (
     SchedulerStatusKind,
+    SlurmStatusParseError,
     SlurmStatusQueryError,
+    build_sacct_status_command,
 )
 from phase2b1_test_support import profile
 from synthetic_structure_test_support import (
@@ -1489,6 +1497,7 @@ class ProjectRecoveryTests(unittest.TestCase):
         self.assertIs(snapshot.active_step.state, ProjectStepState.SUCCEEDED)
         self.assertIsNotNone(snapshot.optimized_structure)
         self.assertIn("Step 2", snapshot.status_message)
+        self.assertNotIn("not implemented", snapshot.status_message)
         self.assertFalse(
             any(
                 item[0] == "mkdir" and item[1].endswith("/transport")
@@ -1621,6 +1630,329 @@ class ProjectRecoveryTests(unittest.TestCase):
             any(item[0] in {"head", "tail", "write", "rename"}
                 for item in self.remote.operations)
         )
+
+    def _install_batch_projects(self):
+        template = _project()
+        bundle = _bundle()
+        projects = tuple(
+            replace(
+                template, project_id=UUID(int=100 + i),
+                display_name=f"Example {i}", remote_directory_name=f"Example{i}",
+                remote_project_path=TEST_PROFILE.remote_project_root + f"/Example{i}",
+            )
+            for i in range(3)
+        )
+        for project in projects:
+            self.remote.add_project(project, bundle)
+        self.remote.squeue_stdout = b"12345|RUNNING\n"
+        return projects
+
+    def test_batch_index_io_is_constant_and_unchanged_refresh_does_not_write(self):
+        projects = self._install_batch_projects()
+        with (
+            patch.object(self.index, "_load_state", wraps=self.index._load_state) as reads,
+            patch.object(self.index, "_write", wraps=self.index._write) as writes,
+        ):
+            first = self.service.discover_and_refresh(TEST_PROFILE)
+            self.assertEqual(reads.call_count, 2)
+            self.assertEqual(writes.call_count, 1)
+            reads.reset_mock()
+            writes.reset_mock()
+            second = self.service.discover_and_refresh(TEST_PROFILE)
+            self.assertEqual(reads.call_count, 2)
+            writes.assert_not_called()
+        self.assertEqual(first.snapshots, second.snapshots)
+        self.assertEqual(len(self.index.load()), len(projects))
+        self.assertTrue(all(r.last_seen_revision == 3 for r in self.index.load()))
+
+    def _install_distinct_job_batch(self):
+        projects = tuple(
+            replace(project, steps=(
+                replace(project.steps[0], job_id=str(91000 + i)),
+                *project.steps[1:],
+            ))
+            for i, project in enumerate(self._install_batch_projects())
+        )
+        for project in projects:
+            self.remote.files[project.remote_project_path + "/.moltage/project.json"] = (
+                serialize_project_manifest(project).encode()
+            )
+        self.remote.squeue_stdout = b"91000|PENDING\n91001|RUNNING\n91002|PENDING\n"
+        return projects
+
+    def test_batch_distinct_jobs_share_only_the_current_queue_observation(self):
+        projects = self._install_distinct_job_batch()
+        first = self.service.discover_and_refresh(TEST_PROFILE)
+        self.assertEqual(
+            [s.active_step.state for s in first.snapshots],
+            [ProjectStepState.QUEUED, ProjectStepState.RUNNING, ProjectStepState.QUEUED],
+        )
+        self.assertEqual(
+            len([c for c in self.remote.commands if c.startswith("/usr/bin/squeue ")]), 1
+        )
+        self.remote.squeue_stdout = b"91000|RUNNING\n91001|RUNNING\n91002|RUNNING\n"
+        second = self.service.discover_and_refresh(TEST_PROFILE)
+        self.assertTrue(all(s.active_step.state is ProjectStepState.RUNNING
+                            for s in second.snapshots))
+        self.remote.squeue_stdout = b"91000|COMPLETING\n"
+        single = self.service.refresh_project(TEST_PROFILE, projects[0].remote_project_path)
+        self.assertIn("COMPLETING", single.status_message)
+        self.assertEqual(
+            len([c for c in self.remote.commands if c.startswith("/usr/bin/squeue ")]), 3
+        )
+
+    def test_batch_mixed_states_keep_exact_per_job_accounting(self):
+        self._install_distinct_job_batch()
+        self.remote.squeue_stdout = b"91000|RUNNING\n"
+        accounting = {
+            build_sacct_status_command("/usr/bin/sacct", "91001"): b"",
+            build_sacct_status_command("/usr/bin/sacct", "91002"): b"91002|TIMEOUT|0:0\n",
+        }
+        execute = self.remote.execute
+
+        def per_job_accounting(command):
+            if command in accounting:
+                self.remote.sacct_stdout = accounting[command]
+            return execute(command)
+
+        with patch.object(self.remote, "execute", side_effect=per_job_accounting):
+            result = self.service.discover_and_refresh(TEST_PROFILE)
+        self.assertEqual(
+            [s.active_step.state for s in result.snapshots],
+            [ProjectStepState.RUNNING, ProjectStepState.QUEUED,
+             ProjectStepState.FAILED],
+        )
+        self.assertIs(result.snapshots[1].scheduler_status_kind,
+                      SchedulerStatusKind.ACCOUNTING_PENDING)
+        self.assertEqual(result.snapshots[2].active_step.scheduler_state, "TIMEOUT")
+        self.assertEqual(
+            [c for c in self.remote.commands if c.startswith("/usr/bin/sacct ")],
+            list(accounting),
+        )
+        self.assertEqual(
+            len([c for c in self.remote.commands if c.startswith("/usr/bin/squeue ")]), 1
+        )
+
+    def test_unconfirmed_batch_never_resolves_or_queries_scheduler(self):
+        for project in self._install_distinct_job_batch():
+            historical = replace(project, server_profile_id=UUID(int=999))
+            self.remote.files[project.remote_project_path + "/.moltage/project.json"] = (
+                serialize_project_manifest(historical).encode()
+            )
+        with patch("moltage.app.project_recovery._resolve_scheduler_paths") as resolve:
+            result = self.service.discover_and_refresh(TEST_PROFILE)
+            resolve.assert_not_called()
+        self.assertTrue(all(s.requires_profile_rebind for s in result.snapshots))
+        self.assertEqual(self.remote.commands, [])
+
+    def test_batch_queue_failure_does_not_mutate_projects_or_create_index(self):
+        self._install_distinct_job_batch()
+        before = dict(self.remote.files)
+        execute = self.remote.execute
+        for outcome, error in (
+            (RemoteCommandResult(1, b"", b""), SlurmStatusQueryError),
+            (RemoteCommandResult(0, b"91000|RUNNING\nbad row\n", b""), SlurmStatusParseError),
+            (RemoteConnectionError("synthetic disconnect"), RemoteConnectionError),
+        ):
+            def query_failure(command):
+                if command.startswith("/usr/bin/squeue "):
+                    if isinstance(outcome, Exception):
+                        raise outcome
+                    return outcome
+                return execute(command)
+
+            with self.subTest(error=error):
+                self.remote.closed = False
+                with (
+                    patch.object(self.remote, "execute", side_effect=query_failure),
+                    self.assertRaises(error),
+                ):
+                    self.service.discover_and_refresh(TEST_PROFILE)
+                self.assertEqual(self.remote.files, before)
+                self.assertFalse(self.index.path.exists())
+                self.assertTrue(self.remote.closed)
+        self.assertFalse(any("/sacct " in c for c in self.remote.commands))
+
+    def test_batch_without_queryable_job_ids_does_not_resolve_scheduler(self):
+        project = _project(ProjectStepState.UNKNOWN)
+        self.remote.add_project(project, _bundle())
+        with patch("moltage.app.project_recovery._resolve_scheduler_paths") as resolve:
+            result = self.service.discover_and_refresh(TEST_PROFILE)
+            resolve.assert_not_called()
+        self.assertIs(result.snapshots[0].active_step.state, ProjectStepState.UNKNOWN)
+        self.assertEqual(self.remote.commands, [])
+
+    def test_later_scheduler_mismatch_cannot_consume_the_cached_slurm_row(self):
+        projects = self._install_distinct_job_batch()
+        foreign = replace(projects[1], steps=(
+            replace(projects[1].steps[0], scheduler_kind=SchedulerKind.LSF),
+            *projects[1].steps[1:],
+        ))
+        path = foreign.remote_project_path + "/.moltage/project.json"
+        original = serialize_project_manifest(foreign).encode()
+        self.remote.files[path] = original
+        with self.assertRaisesRegex(ProjectRecoveryError, "Restore the matching scheduler"):
+            self.service.discover_and_refresh(TEST_PROFILE)
+        self.assertEqual(self.remote.files[path], original)
+        self.assertEqual([r.project_id for r in self.index.load()], [projects[0].project_id])
+        self.assertEqual(
+            len([c for c in self.remote.commands if c.startswith("/usr/bin/squeue ")]), 1
+        )
+
+    def test_batch_ambiguous_later_job_preserves_completed_prefix_only(self):
+        projects = self._install_distinct_job_batch()
+        self.remote.squeue_stdout = b"91000|RUNNING\n91001|PENDING\n91001|RUNNING\n"
+        untouched = {
+            p.remote_project_path + "/.moltage/project.json":
+                self.remote.files[p.remote_project_path + "/.moltage/project.json"]
+            for p in projects[1:]
+        }
+        with self.assertRaisesRegex(SlurmStatusParseError, "multiple rows"):
+            self.service.discover_and_refresh(TEST_PROFILE)
+        self.assertEqual([r.project_id for r in self.index.load()], [projects[0].project_id])
+        for path, data in untouched.items():
+            self.assertEqual(self.remote.files[path], data)
+        self.assertEqual(
+            len([c for c in self.remote.commands if c.startswith("/usr/bin/squeue ")]), 1
+        )
+        self.assertTrue(self.remote.closed)
+
+    def test_batch_saves_completed_prefix_when_later_project_fails(self):
+        projects = self._install_batch_projects()
+        reconcile = self.service._reconcile
+        calls = []
+
+        def fail_second(*args):
+            calls.append(args[2].project_id)
+            if len(calls) == 2:
+                raise RemoteConnectionError("synthetic connection loss")
+            return reconcile(*args)
+
+        with (
+            patch.object(self.service, "_reconcile", side_effect=fail_second),
+            patch.object(self.index, "_write", wraps=self.index._write) as writes,
+        ):
+            with self.assertRaisesRegex(RemoteConnectionError, "synthetic connection loss"):
+                self.service.discover_and_refresh(TEST_PROFILE)
+            self.assertEqual(writes.call_count, 1)
+        self.assertEqual(
+            tuple(r.project_id for r in self.index.load()), (projects[0].project_id,)
+        )
+        self.assertTrue(self.remote.closed)
+
+    def test_batch_saves_completed_prefix_on_stop_without_visiting_next_project(self):
+        projects = self._install_batch_projects()
+        token = RemoteOperationStopToken()
+        reconcile = self.service._reconcile
+
+        def stop_after_one(*args):
+            snapshot = reconcile(*args)
+            token.request_stop()
+            return snapshot
+
+        with patch.object(self.service, "_reconcile", side_effect=stop_after_one) as calls:
+            with self.assertRaises(RemoteOperationStopped):
+                self.service.discover_and_refresh(TEST_PROFILE, stop_token=token)
+            self.assertEqual(calls.call_count, 1)
+        self.assertEqual(
+            len([c for c in self.remote.commands if c.startswith("/usr/bin/squeue ")]), 1
+        )
+        self.assertEqual(
+            tuple(r.project_id for r in self.index.load()), (projects[0].project_id,)
+        )
+
+    def test_empty_discovery_reads_index_once_without_writing(self):
+        with (
+            patch.object(self.index, "_load_state", wraps=self.index._load_state) as reads,
+            patch.object(self.index, "_write", wraps=self.index._write) as writes,
+        ):
+            result = self.service.discover_and_refresh(TEST_PROFILE)
+            self.assertEqual(result.snapshots, ())
+            self.assertEqual(reads.call_count, 1)
+            writes.assert_not_called()
+
+    def test_batch_does_not_mark_unconfirmed_or_recycled_projects_seen(self):
+        projects = self._install_batch_projects()
+        historical = replace(projects[1], server_profile_id=UUID(int=999))
+        self.remote.files[historical.remote_project_path + "/.moltage/project.json"] = (
+            serialize_project_manifest(historical).encode()
+        )
+        self.index.recycle(
+            projects[2], bound_server_profile_id=TEST_PROFILE.profile_id,
+            submitted_at=projects[2].steps[0].submitted_at, recycled_at=NOW,
+        )
+        result = self.service.discover_and_refresh(TEST_PROFILE)
+        self.assertEqual(len(result.snapshots), 2)
+        self.assertTrue(result.snapshots[1].requires_profile_rebind)
+        references = {r.project_id: r for r in self.index.load()}
+        self.assertNotIn(historical.project_id, references)
+        self.assertEqual(references[projects[0].project_id].last_seen_revision, 3)
+        self.assertEqual(references[projects[2].project_id].last_seen_revision, 2)
+
+    def test_local_batch_write_failure_does_not_rollback_remote_reconciliation(self):
+        projects = self._install_batch_projects()
+        with patch.object(
+            self.index, "_write", side_effect=LocalProjectIndexError("synthetic disk failure")
+        ):
+            with self.assertRaisesRegex(LocalProjectIndexError, "synthetic disk failure"):
+                self.service.discover_and_refresh(TEST_PROFILE)
+        self.assertFalse(self.index.path.exists())
+        self.assertTrue(self.remote.closed)
+        for project in projects:
+            current = parse_project_manifest(
+                self.remote.files[project.remote_project_path + "/.moltage/project.json"]
+            )
+            self.assertEqual(current.revision, 3)
+            self.assertIs(current.steps[0].state, ProjectStepState.RUNNING)
+
+    def test_batch_discovery_with_duplicate_ids_matches_sequential_index_updates(self):
+        projects = self._install_batch_projects()
+        copied = replace(projects[1], project_id=projects[0].project_id)
+        self.remote.files[copied.remote_project_path + "/.moltage/project.json"] = (
+            serialize_project_manifest(copied).encode()
+        )
+        result = self.service.discover_and_refresh(TEST_PROFILE)
+        self.assertEqual(len(result.snapshots), 3)
+        expected = LocalProjectIndexRepository(self.index.path.with_name("single.json"))
+        for snapshot in result.snapshots:
+            expected.mark_seen(snapshot.project, bound_server_profile_id=TEST_PROFILE.profile_id)
+        self.assertEqual(self.index.path.read_bytes(), expected.path.read_bytes())
+
+    def test_conflict_during_discovery_preserves_newer_index_and_closes_connection(self):
+        projects = self._install_batch_projects()
+        reconcile = self.service._reconcile
+
+        def intervening_write(*args):
+            snapshot = reconcile(*args)
+            if snapshot.project.project_id == projects[0].project_id:
+                self.index.mark_seen(replace(snapshot.project, revision=20))
+            return snapshot
+
+        with patch.object(self.service, "_reconcile", side_effect=intervening_write):
+            with self.assertRaisesRegex(LocalProjectIndexError, "changed during refresh"):
+                self.service.discover_and_refresh(TEST_PROFILE)
+        self.assertTrue(self.remote.closed)
+        self.assertEqual(len(self.index.load()), 1)
+        self.assertEqual(self.index.load()[0].last_seen_revision, 20)
+
+    def test_stop_with_flush_failure_still_reports_stop_and_closes_connection(self):
+        self._install_batch_projects()
+        token = RemoteOperationStopToken()
+        reconcile = self.service._reconcile
+
+        def stop_after_one(*args):
+            snapshot = reconcile(*args)
+            token.request_stop()
+            return snapshot
+
+        with (
+            patch.object(self.service, "_reconcile", side_effect=stop_after_one),
+            patch.object(self.index, "_write", side_effect=LocalProjectIndexError("synthetic disk failure")),
+        ):
+            with self.assertRaises(RemoteOperationStopped):
+                self.service.discover_and_refresh(TEST_PROFILE, stop_token=token)
+        self.assertFalse(self.index.path.exists())
+        self.assertTrue(self.remote.closed)
 
 
 if __name__ == "__main__":

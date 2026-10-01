@@ -105,6 +105,16 @@ class LocalProjectIndexRepository:
         references, _recycled = self._load_state()
         return references
 
+    def load_snapshot(
+        self,
+    ) -> tuple[
+        tuple[KnownProjectReference, ...],
+        tuple[RecycledProjectReference, ...],
+    ]:
+        """Read bindings and recycle markers together for one refresh operation."""
+
+        return self._load_state()
+
     def is_bound_to_profile(
         self,
         project: CalculationProject,
@@ -229,25 +239,49 @@ class LocalProjectIndexRepository:
         *,
         bound_server_profile_id: UUID | None = None,
     ) -> KnownProjectReference:
-        profile_id = (
-            project.server_profile_id
-            if bound_server_profile_id is None
-            else bound_server_profile_id
-        )
-        if not isinstance(profile_id, UUID):
-            raise LocalProjectIndexError(
-                "bound server profile reference must be a UUID"
-            )
-        reference = KnownProjectReference(
-            project_id=project.project_id,
-            server_profile_id=profile_id,
-            remote_project_path=project.remote_project_path,
-            display_name=project.display_name,
-            last_seen_revision=project.revision,
-            workflow_kind=project.workflow_kind,
-        )
+        reference = _seen_reference(project, bound_server_profile_id)
         self.save(reference)
         return reference
+
+    def mark_seen_many(
+        self,
+        projects: tuple[CalculationProject, ...],
+        *,
+        bound_server_profile_id: UUID,
+        previous_references: tuple[KnownProjectReference, ...],
+    ) -> None:
+        """Merge a completed refresh prefix with one fresh read and at most one write.
+
+        Never write the operation's starting snapshot back wholesale: other
+        projects and recycle markers may have changed during remote work.
+        A changed/removed reference in this batch is an explicit conflict, not
+        permission to restore an old binding or downgrade a newer seen revision.
+        This checks intervening edits; it is not a multi-process file lock.
+        """
+
+        if not projects:
+            return
+        # Match sequential mark_seen calls if discovery contains the same UUID
+        # at multiple paths: the last completed occurrence owns the reference.
+        updates = {
+            project.project_id: _seen_reference(project, bound_server_profile_id)
+            for project in projects
+        }
+        previous = {item.project_id: item for item in previous_references}
+        current, recycled = self._load_state()
+        merged = {item.project_id: item for item in current}
+        changed = False
+        for reference in updates.values():
+            latest = merged.get(reference.project_id)
+            if latest != previous.get(reference.project_id) and latest != reference:
+                raise LocalProjectIndexError(
+                    "local project reference changed during refresh; refresh again"
+                )
+            if latest != reference:
+                merged[reference.project_id] = reference
+                changed = True
+        if changed:
+            self._write(tuple(merged.values()), recycled)
 
     def recycle(
         self,
@@ -395,6 +429,27 @@ class LocalProjectIndexRepository:
             raise LocalProjectIndexError(
                 "local project index could not be persisted"
             ) from None
+
+
+def _seen_reference(
+    project: CalculationProject,
+    bound_server_profile_id: UUID | None,
+) -> KnownProjectReference:
+    profile_id = (
+        project.server_profile_id
+        if bound_server_profile_id is None
+        else bound_server_profile_id
+    )
+    if not isinstance(profile_id, UUID):
+        raise LocalProjectIndexError("bound server profile reference must be a UUID")
+    return KnownProjectReference(
+        project_id=project.project_id,
+        server_profile_id=profile_id,
+        remote_project_path=project.remote_project_path,
+        display_name=project.display_name,
+        last_seen_revision=project.revision,
+        workflow_kind=project.workflow_kind,
+    )
 
 
 def _replace_or_append_reference(

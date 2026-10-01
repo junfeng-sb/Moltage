@@ -1,8 +1,12 @@
 from dataclasses import replace
 from math import dist
 import unittest
+from unittest.mock import patch
 
-from moltage.domain.au_lattice_extension import AuLatticeExtensionSite
+from moltage.domain.au_lattice_extension import (
+    AuLatticeExtensionSite,
+    has_au_lattice_clearance,
+)
 from moltage.domain.structure import Atom, MolecularStructure
 from moltage.junction.electrode_lattice_extension import (
     add_lattice_extension,
@@ -28,10 +32,26 @@ class AuLatticeInteractionTests(unittest.TestCase):
 
     def test_snapshot_retains_every_phase2_identity_and_marks_blocked(self) -> None:
         canonical = enumerate_lattice_extension_candidates(self.applied)
-        snapshot = interaction_candidates_for_working_geometry(
-            self.applied,
-            self.applied.structure,
-            self.radii,
+        with patch(
+            "moltage.junction.electrode_lattice_interaction.has_au_lattice_clearance",
+            wraps=has_au_lattice_clearance,
+        ) as clearance:
+            snapshot = interaction_candidates_for_working_geometry(
+                self.applied,
+                self.applied.structure,
+                self.radii,
+            )
+        # Every candidate uses the same current-snapshot Au coordinates.
+        self.assertEqual(
+            len({id(call.args[1]) for call in clearance.call_args_list}), 1,
+        )
+        self.assertEqual(
+            clearance.call_args_list[0].args[1],
+            tuple(
+                _coordinates(atom)
+                for atom in self.applied.structure
+                if atom.element == "Au"
+            ),
         )
         self.assertEqual(
             tuple(item.identity for item in snapshot),
@@ -349,12 +369,20 @@ class AuLatticeInteractionTests(unittest.TestCase):
             cluster.pyramid.reference_corner_lattice_keys
             for cluster in self.applied.proposal.clusters
         )
-        result = add_lattice_extension_to_working_geometry(
-            self.applied,
-            working,
-            selected.identity,
-            self.radii,
-        )
+        with patch(
+            "moltage.junction.electrode_lattice_interaction.enumerate_lattice_extension_candidates",
+            wraps=enumerate_lattice_extension_candidates,
+        ) as enumerate_current:
+            result = add_lattice_extension_to_working_geometry(
+                self.applied,
+                working,
+                selected.identity,
+                self.radii,
+            )
+        # One fresh interaction snapshot per click, reused for canonical lookup.
+        # Phase 2 retains its own independent revalidation and next-state scan.
+        self.assertEqual(enumerate_current.call_count, 1)
+        self.assertIs(enumerate_current.call_args.args[0], self.applied)
         self.assertEqual(len(result.working_structure), len(working) + 1)
         self.assertEqual(
             _coordinates(result.working_structure[len(result.working_structure) - 1]),

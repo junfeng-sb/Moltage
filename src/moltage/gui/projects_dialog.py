@@ -3574,28 +3574,6 @@ def _density_scheduler_name(task: DensityTask) -> str:
     )
 
 
-def _orca_frequency_eligible(
-    snapshot: ProjectRecoverySnapshot | None,
-) -> bool:
-    if (
-        snapshot is None
-        or snapshot.project.workflow_kind is not CalculationWorkflowKind.ORCA
-        or snapshot.optimized_structure is None
-    ):
-        return False
-    optimization = snapshot.project.steps[0]
-    return (
-        optimization.kind is ProjectStepKind.ORCA_OPTIMIZATION
-        and optimization.state is ProjectStepState.SUCCEEDED
-        and optimization.orca_optimization_result is not None
-        and optimization.orca_optimization_result.succeeded
-        and not any(
-            step.kind is ProjectStepKind.ORCA_FREQUENCY
-            for step in snapshot.project.steps
-        )
-    )
-
-
 def _orca_wbl_eligible(
     snapshot: ProjectRecoverySnapshot | None,
 ) -> bool:

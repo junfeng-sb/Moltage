@@ -134,6 +134,7 @@ from moltage.remote.slurm_discovery import (
 from moltage.remote.slurm_status import (
     SchedulerStatusKind,
     SlurmJobStatus,
+    make_batch_job_status_query,
     query_slurm_job_status,
     validate_job_id,
 )
@@ -452,11 +453,13 @@ class ProjectRecoveryService:
                 profile.remote_project_root,
                 preserve_remote_errors=True,
             )
+            known_references, recycled_references = (
+                self._local_index_repository.load_snapshot()
+            )
             recycled_project_ids = {
                 item.project_id
-                for item in self._local_index_repository.load_recycled(
-                    server_profile_id=profile.profile_id
-                )
+                for item in recycled_references
+                if item.server_profile_id == profile.profile_id
             }
             local_profile_bindings = {
                 (
@@ -464,62 +467,75 @@ class ProjectRecoveryService:
                     item.remote_project_path,
                     item.server_profile_id,
                 )
-                for item in self._local_index_repository.load()
+                for item in known_references
             }
-            scheduler_paths: _SchedulerPaths | None = None
+            scheduler_query: Callable[[str], SlurmJobStatus] | None = None
 
-            def paths() -> _SchedulerPaths:
-                nonlocal scheduler_paths
-                if scheduler_paths is None:
-                    scheduler_paths = _resolve_scheduler_paths(executor, profile)
-                return scheduler_paths
+            def query_status(job_id: str) -> SlurmJobStatus:
+                nonlocal scheduler_query
+                if scheduler_query is None:
+                    scheduler_query = _scheduler_status_query(
+                        executor, profile, _resolve_scheduler_paths(executor, profile)
+                    )
+                return scheduler_query(job_id)
 
             snapshots: list[ProjectRecoverySnapshot] = []
-            for project in discovery.projects:
-                if stop_token is not None:
-                    stop_token.checkpoint()
-                _validate_selected_root(profile, project.remote_project_path)
-                if project.project_id in recycled_project_ids:
-                    continue
-                profile_identity_differs = (
-                    project.server_profile_id != profile.profile_id
-                )
-                local_profile_binding_confirmed = (
-                    profile_identity_differs
-                    and (
-                        project.project_id,
-                        project.remote_project_path,
-                        profile.profile_id,
+            seen_projects: list[CalculationProject] = []
+            try:
+                for project in discovery.projects:
+                    if stop_token is not None:
+                        stop_token.checkpoint()
+                    _validate_selected_root(profile, project.remote_project_path)
+                    if project.project_id in recycled_project_ids:
+                        continue
+                    profile_identity_differs = (
+                        project.server_profile_id != profile.profile_id
                     )
-                    in local_profile_bindings
-                )
-                if profile_identity_differs and not local_profile_binding_confirmed:
-                    snapshots.append(
-                        _snapshot(
-                            project,
-                            status_message=(
-                                "Local server-profile confirmation is required "
-                                "before status refresh."
-                            ),
-                            requires_profile_rebind=True,
+                    local_profile_binding_confirmed = (
+                        profile_identity_differs
+                        and (
+                            project.project_id,
+                            project.remote_project_path,
+                            profile.profile_id,
                         )
+                        in local_profile_bindings
                     )
-                    continue
-                snapshot = self._reconcile(
-                    executor,
-                    repository,
-                    project,
-                    paths,
-                    profile,
-                    report,
+                    if profile_identity_differs and not local_profile_binding_confirmed:
+                        snapshots.append(
+                            _snapshot(
+                                project,
+                                status_message=(
+                                    "Local server-profile confirmation is required "
+                                    "before status refresh."
+                                ),
+                                requires_profile_rebind=True,
+                            ),
+                        )
+                        continue
+                    snapshot = self._reconcile(
+                        executor,
+                        repository,
+                        project,
+                        query_status,
+                        profile,
+                        report,
+                    )
+                    if local_profile_binding_confirmed:
+                        snapshot = replace(
+                            snapshot,
+                            profile_rebind_confirmed=True,
+                        )
+                    seen_projects.append(snapshot.project)
+                    snapshots.append(snapshot)
+            finally:
+                # Preserve completed projects even if a later one fails/stops.
+                # Flush locally before closing the operation's remote executor.
+                # If both fail, the index error is primary; Stop still wins below.
+                self._local_index_repository.mark_seen_many(
+                    tuple(seen_projects),
+                    bound_server_profile_id=profile.profile_id,
+                    previous_references=known_references,
                 )
-                if local_profile_binding_confirmed:
-                    snapshot = replace(
-                        snapshot,
-                        profile_rebind_confirmed=True,
-                    )
-                self._mark_seen(snapshot.project, profile)
-                snapshots.append(snapshot)
             report("Updating project list...")
             return ProjectDiscoveryResult(
                 tuple(
@@ -588,19 +604,21 @@ class ProjectRecoveryService:
                 and not effective_profile_rebind_confirmation
             ):
                 raise ProjectProfileRebindRequired(project, profile)
-            scheduler_paths: _SchedulerPaths | None = None
+            scheduler_query: Callable[[str], SlurmJobStatus] | None = None
 
-            def paths() -> _SchedulerPaths:
-                nonlocal scheduler_paths
-                if scheduler_paths is None:
-                    scheduler_paths = _resolve_scheduler_paths(executor, profile)
-                return scheduler_paths
+            def query_status(job_id: str) -> SlurmJobStatus:
+                nonlocal scheduler_query
+                if scheduler_query is None:
+                    scheduler_query = _scheduler_status_query(
+                        executor, profile, _resolve_scheduler_paths(executor, profile)
+                    )
+                return scheduler_query(job_id)
 
             snapshot = self._reconcile(
                 executor,
                 repository,
                 project,
-                paths,
+                query_status,
                 profile,
                 report,
             )
@@ -728,7 +746,7 @@ class ProjectRecoveryService:
                     executor,
                     repository,
                     project,
-                    lambda: paths,
+                    _scheduler_status_query(executor, request.profile, paths),
                     request.profile,
                     progress,
                 )
@@ -794,7 +812,7 @@ class ProjectRecoveryService:
         executor: RemoteExecutor,
         repository: RemoteProjectRepository,
         project: CalculationProject,
-        scheduler_paths: Callable[[], _SchedulerPaths],
+        query_status: Callable[[str], SlurmJobStatus],
         profile: ServerProfile,
         progress: Callable[[str], None],
     ) -> ProjectRecoverySnapshot:
@@ -803,7 +821,7 @@ class ProjectRecoveryService:
                 executor,
                 repository,
                 project,
-                scheduler_paths,
+                query_status,
                 profile,
                 progress,
             )
@@ -832,13 +850,11 @@ class ProjectRecoveryService:
                 step_kind,
                 control_text,
             )
-            continuation_note = ""
             return _snapshot(
                 project,
                 status_message=(
                     f"{_step_label(step_kind)} completed successfully; optimized "
                     "geometry recovered."
-                    + continuation_note
                 ),
                 optimized_structure=structure,
                 connectivity=connectivity,
@@ -862,17 +878,7 @@ class ProjectRecoveryService:
                 scheduler_name = _scheduler_name(step)
                 progress(f"Checking {scheduler_name} status...")
                 _require_scheduler_binding(profile, step)
-                paths = scheduler_paths()
-                status = query_slurm_job_status(
-                    executor,
-                    squeue_path=paths.squeue,
-                    sacct_path=paths.sacct,
-                    job_id=step.job_id,
-                    profile_username=profile.username,
-                    lsf_env_directory=paths.lsf_env_directory,
-                    lsf_library_directory=paths.lsf_library_directory,
-                    lsf_server_directory=paths.lsf_server_directory,
-                )
+                status = query_status(step.job_id)
                 if status.kind is SchedulerStatusKind.COMPLETED:
                     return self._assess_completed(
                         executor,
@@ -925,17 +931,7 @@ class ProjectRecoveryService:
         scheduler_name = _scheduler_name(step)
         progress(f"Checking {scheduler_name} status...")
         _require_scheduler_binding(profile, step)
-        paths = scheduler_paths()
-        status = query_slurm_job_status(
-            executor,
-            squeue_path=paths.squeue,
-            sacct_path=paths.sacct,
-            job_id=step.job_id,
-            profile_username=profile.username,
-            lsf_env_directory=paths.lsf_env_directory,
-            lsf_library_directory=paths.lsf_library_directory,
-            lsf_server_directory=paths.lsf_server_directory,
-        )
+        status = query_status(step.job_id)
         if status.kind is SchedulerStatusKind.QUEUED:
             changed = replace(
                 step,
@@ -1042,7 +1038,7 @@ class ProjectRecoveryService:
         executor: RemoteExecutor,
         repository: RemoteProjectRepository,
         project: CalculationProject,
-        scheduler_paths: Callable[[], _SchedulerPaths],
+        query_status: Callable[[str], SlurmJobStatus],
         profile: ServerProfile,
         progress: Callable[[str], None],
     ) -> ProjectRecoverySnapshot:
@@ -1090,19 +1086,9 @@ class ProjectRecoveryService:
             )
         validate_job_id(step.job_id)
         _require_scheduler_binding(profile, step)
-        paths = scheduler_paths()
         scheduler_name = _scheduler_name(step)
         progress(f"Checking {scheduler_name} status for ORCA...")
-        status = query_slurm_job_status(
-            executor,
-            squeue_path=paths.squeue,
-            sacct_path=paths.sacct,
-            job_id=step.job_id,
-            profile_username=profile.username,
-            lsf_env_directory=paths.lsf_env_directory,
-            lsf_library_directory=paths.lsf_library_directory,
-            lsf_server_directory=paths.lsf_server_directory,
-        )
+        status = query_status(step.job_id)
         if status.kind is SchedulerStatusKind.QUEUED:
             updated = self._persist_step(
                 repository,
@@ -1879,11 +1865,6 @@ class ProjectRecoveryService:
             step.kind,
             control_text,
         )
-        continuation_note = (
-            " Transport continuation is not implemented yet."
-            if step.kind is ProjectStepKind.MOLECULE_AU_OPT
-            else ""
-        )
         convergence_note = (
             " Geometry convergence marker was detected."
             if assessment.geometry_convergence_detected
@@ -1896,7 +1877,6 @@ class ProjectRecoveryService:
                 "FHI-aims terminated normally; "
                 "geometry.in.next_step was recovered."
                 + convergence_note
-                + continuation_note
             ),
             optimized_structure=structure,
             connectivity=connectivity,
@@ -2541,6 +2521,22 @@ class ProjectRecoveryService:
             project,
             bound_server_profile_id=profile.profile_id,
         )
+
+
+def _scheduler_status_query(
+    executor: RemoteExecutor,
+    profile: ServerProfile,
+    paths: _SchedulerPaths,
+) -> Callable[[str], SlurmJobStatus]:
+    return make_batch_job_status_query(
+        executor,
+        squeue_path=paths.squeue,
+        sacct_path=paths.sacct,
+        profile_username=profile.username,
+        lsf_env_directory=paths.lsf_env_directory,
+        lsf_library_directory=paths.lsf_library_directory,
+        lsf_server_directory=paths.lsf_server_directory,
+    )
 
 
 def _resolve_scheduler_paths(

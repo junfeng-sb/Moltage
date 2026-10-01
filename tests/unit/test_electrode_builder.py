@@ -1,10 +1,15 @@
 import math
 import unittest
+from unittest.mock import patch
+
+import numpy as np
 
 from moltage.domain.anchor import AnchorCandidate, AnchorKind
 from moltage.domain.au_pyramid import generate_au_pyramid
 from moltage.domain.electrode import ElectrodeContactSite
 from moltage.junction.electrode_builder import (
+    COARSE_ROLL_STEP_DEGREES,
+    REFINE_ROLL_RADIUS_DEGREES,
     ElectrodeBuilderError,
     align_electrode_pyramid,
     apply_electrode_placement,
@@ -149,8 +154,14 @@ class ElectrodeBuilderTests(unittest.TestCase):
     def test_joint_roll_ties_choose_lexicographically_smallest_angles(self) -> None:
         first = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))
         second = ((0.0, 100.0, 0.0), (1.0, 100.0, 0.0))
-        selection = optimize_joint_roll(first, (1.0, 0.0, 0.0), second, (1.0, 0.0, 0.0))
+        with patch("moltage.junction.electrode_builder.np.asarray", wraps=np.asarray) as arrays:
+            selection = optimize_joint_roll(first, (1.0, 0.0, 0.0), second, (1.0, 0.0, 0.0))
         self.assertEqual((selection.first_degrees, selection.second_degrees), (0, 0))
+        # Each side/angle is prepared once per pass, not once per angle pair.
+        angles_per_side = len(range(0, 360, COARSE_ROLL_STEP_DEGREES)) + (
+            2 * REFINE_ROLL_RADIUS_DEGREES + 1
+        )
+        self.assertEqual(arrays.call_count, 2 * angles_per_side)
 
     def test_apply_promotes_exact_default_preview_without_apex_duplication(self) -> None:
         structure, connectivity, _, sites = synthetic_step2_state()

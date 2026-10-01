@@ -413,9 +413,11 @@ def minimum_cross_cluster_distance_squared(
 ) -> float:
     """Return the cross-cluster minimum squared distance, excluding apex/apex."""
 
+    first = _validated_cluster_coordinates(first_coordinates)
+    second = _validated_cluster_coordinates(second_coordinates)
     return _minimum_cross_cluster_distance_squared(
-        _validated_cluster_coordinates(first_coordinates),
-        _validated_cluster_coordinates(second_coordinates),
+        np.asarray(first, dtype=float),
+        np.asarray(second, dtype=float),
     )
 
 
@@ -428,13 +430,19 @@ def _best_roll_pair(
 ) -> tuple[tuple[int, int], float]:
     best_pair = initial_pair
     best_score = initial_score
+    # Coordinates are fixed during this pass. Prepare each angle once instead
+    # of rebuilding both arrays for every pair in the Cartesian search.
+    second_arrays = tuple(
+        (angle, np.asarray(second_coordinates_by_angle[angle], dtype=float))
+        for angle in sorted(second_coordinates_by_angle)
+    )
     for first_angle in sorted(first_coordinates_by_angle):
-        first = first_coordinates_by_angle[first_angle]
-        for second_angle in sorted(second_coordinates_by_angle):
+        first = np.asarray(first_coordinates_by_angle[first_angle], dtype=float)
+        for second_angle, second in second_arrays:
             pair = first_angle, second_angle
             score = _minimum_cross_cluster_distance_squared(
                 first,
-                second_coordinates_by_angle[second_angle],
+                second,
                 best_score=(best_score if best_pair is not None else None),
             )
             if (
@@ -453,14 +461,12 @@ def _best_roll_pair(
 
 
 def _minimum_cross_cluster_distance_squared(
-    first: tuple[Vector3, ...],
-    second: tuple[Vector3, ...],
+    first: np.ndarray,
+    second: np.ndarray,
     *,
     best_score: float | None = None,
 ) -> float:
-    first_array = np.asarray(first, dtype=float)
-    second_array = np.asarray(second, dtype=float)
-    differences = first_array[:, np.newaxis, :] - second_array[np.newaxis, :, :]
+    differences = first[:, np.newaxis, :] - second[np.newaxis, :, :]
     squared = np.einsum("ijk,ijk->ij", differences, differences)
     squared[0, 0] = np.inf
     minimum = float(np.min(squared))

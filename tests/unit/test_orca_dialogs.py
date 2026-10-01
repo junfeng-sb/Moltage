@@ -4,10 +4,11 @@ from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QDoubleSpinBox,
     QInputDialog,
     QLabel,
@@ -459,19 +460,34 @@ class OrcaDialogTests(unittest.TestCase):
     def test_wbl_manual_viewer_selection_restores_contact_and_linker(self):
         structure = synthetic_dithiol()
         requested = []
+        selections = iter((3, None))
+
+        def select_contact(side):
+            requested.append(side)
+            self.assertFalse(dialog.isVisible())
+            self.assertIsNone(self.application.modalWindow())
+            selected = next(selections)
+            QTimer.singleShot(0, dialog.accept if selected is not None else dialog.reject)
+            return selected
+
         dialog = OrcaWblSettingsDialog(
             structure,
             synthetic_connectivity(structure),
             connectivity_multiplier=DEFAULT_CONNECTIVITY_MULTIPLIER,
-            contact_atom_selector=lambda side: requested.append(side) or 3,
+            contact_atom_selector=select_contact,
         )
 
         manual_index = dialog._left.atom.findData("MANUAL_SELECT_IN_VIEWER")
-        dialog._left.atom.setCurrentIndex(manual_index)
-
-        self.assertEqual(requested, ["left"])
-        self.assertEqual(dialog._left.atom.currentData(), 3)
-        self.assertEqual(dialog._left.linker.currentData(), WblLinkerKind.SH)
+        for expected in (QDialog.DialogCode.Accepted, QDialog.DialogCode.Rejected):
+            with self.subTest(result=expected):
+                QTimer.singleShot(0, lambda: dialog._left.atom.setCurrentIndex(manual_index))
+                self.assertEqual(dialog.exec(), expected)
+                self.assertEqual(dialog._left.atom.currentData(), 3)
+                self.assertEqual(dialog._left.linker.currentData(), WblLinkerKind.SH)
+                self.assertFalse(dialog.isVisible())
+                self.assertIsNone(self.application.modalWindow())
+                self.assertIsNone(self.application.activeModalWidget())
+        self.assertEqual(requested, ["left", "left"])
         dialog.close()
 
     def test_wbl_gamma_editor_rejects_letters_and_advanced_is_explicit(self):

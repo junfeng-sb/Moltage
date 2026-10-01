@@ -325,6 +325,43 @@ class OrcaSubmissionRecoveryTests(unittest.TestCase):
             covalent_radii_loader=lambda: {"O": 0.66, "H": 0.31},
         )
 
+    def test_batch_refresh_shares_queue_without_mixing_orca_project_states(self):
+        first = self.submit_optimization().project
+        old_root = first.remote_project_path
+        new_root = old_root + "_02"
+        second = replace(
+            first, project_id=UUID(int=90002),
+            remote_directory_name=first.remote_directory_name + "_02",
+            remote_project_path=new_root,
+            steps=(replace(first.steps[0], job_id="90002"),),
+        )
+        self.remote.directories.update(
+            new_root + d[len(old_root):] for d in tuple(self.remote.directories)
+            if d == old_root or d.startswith(old_root + "/")
+        )
+        self.remote.files.update({
+            new_root + p[len(old_root):]: data
+            for p, data in tuple(self.remote.files.items())
+            if p.startswith(old_root + "/")
+        })
+        self.remote.files[new_root + "/.moltage/project.json"] = (
+            serialize_project_manifest(second).encode()
+        )
+        self.remote.squeue_stdout = b"90001|RUNNING\n90002|PENDING\n"
+        self.remote.operations.clear()
+
+        result = self.recovery_service().discover_and_refresh(
+            configured_profile(), supplied_password="synthetic-password"
+        )
+
+        self.assertEqual(
+            [s.active_step.state for s in result.snapshots],
+            [ProjectStepState.RUNNING, ProjectStepState.QUEUED],
+        )
+        commands = [op[1] for op in self.remote.operations if op[0] == "execute"]
+        self.assertEqual(len([c for c in commands if c.startswith("/usr/bin/squeue ")]), 1)
+        self.assertFalse(any(c.startswith("/usr/bin/sacct ") for c in commands))
+
     def test_slurm_submission_is_atomic_direct_and_persists_one_job(self):
         request_profile = replace(
             configured_profile(),

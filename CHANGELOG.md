@@ -1,5 +1,18 @@
 # Changelog
 
+[简体中文](CHANGELOG.zh-CN.md)
+
+## Unreleased — Optimization checkpoint (2026-10-01)
+
+- Batch local project-index updates during Refresh while preserving intervening changes and recycle state.
+- Reuse one Slurm queue query per Refresh, retaining per-job accounting and fresh checks before job actions.
+- Reduce redundant WBL hashing and large-file transfers with verified server-side artifact copies.
+- Reuse data within Au electrode roll searches and lattice snapshots without changing geometry, collision rules, or click revalidation.
+- Reduce redundant test work while retaining focused regression and direct integration coverage.
+- Remove unused helpers and obsolete status messages.
+- Fix reopening a molecular structure after closing the last Geometry tab.
+- Fix premature WBL setup cancellation and a Windows crash after manual contact selection.
+
 ## 0.2.2 — Pre-release
 
 - Import completed remote ORCA optimizations and continue directly to WBL analysis.
